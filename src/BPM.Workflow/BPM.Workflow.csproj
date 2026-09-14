@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\BPM.Domain\BPM.Domain.csproj" />
     <ProjectReference Include="..\BPM.Application\BPM.Application.csproj" />
+    <ProjectReference Include="..\BPM.Infrastructure\BPM.Infrastructure.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -1,15 +1,20 @@
 using System.Text;
+using System.Text.Json.Serialization;
+using BPM.Api;
 using BPM.Application.Audit;
 using BPM.Application.Auth;
 using BPM.Application.Common;
 using BPM.Application.Departments;
 using BPM.Application.Organizations;
+using BPM.Application.Processes;
 using BPM.Application.Roles;
 using BPM.Application.Users;
+using BPM.Application.Workflow;
 using BPM.Domain.Entities;
 using BPM.Identity;
 using BPM.Infrastructure.Persistence;
 using BPM.Infrastructure.Services;
+using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -24,7 +29,8 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
     .ReadFrom.Services(services)
     .Enrich.FromLogContext());
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -84,6 +90,12 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
 
+builder.Services.AddScoped<IProcessDefinitionService, ProcessDefinitionService>();
+builder.Services.AddScoped<IProcessInstanceQueryService, ProcessInstanceQueryService>();
+builder.Services.AddScoped<ITaskQueryService, TaskQueryService>();
+builder.Services.AddScoped<IWorkflowEngine, BPM.Workflow.Engine.WorkflowEngine>();
+builder.Services.AddValidatorsFromAssemblyContaining<CreateProcessDefinitionRequestValidator>();
+
 builder.Services.AddHealthChecks()
     .AddNpgSql(builder.Configuration.GetConnectionString("Default")!, name: "postgres");
 
@@ -103,6 +115,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseSerilogRequestLogging();
+app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();

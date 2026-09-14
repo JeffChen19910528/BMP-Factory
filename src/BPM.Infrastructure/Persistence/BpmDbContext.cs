@@ -17,6 +17,11 @@ public class BpmDbContext : DbContext
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
+    public DbSet<ProcessDefinition> ProcessDefinitions => Set<ProcessDefinition>();
+    public DbSet<ProcessVersion> ProcessVersions => Set<ProcessVersion>();
+    public DbSet<ProcessInstance> ProcessInstances => Set<ProcessInstance>();
+    public DbSet<TaskInstance> TaskInstances => Set<TaskInstance>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(BpmDbContext).Assembly);

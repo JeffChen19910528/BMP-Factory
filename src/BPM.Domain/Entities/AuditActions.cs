@@ -18,4 +18,10 @@ public static class AuditActions
     public const string Cancel = "Cancel";
     public const string Complete = "Complete";
     public const string PermissionChange = "PermissionChange";
+
+    // Workflow engine events (Phase 2, Skill.md §21).
+    public const string TaskCreated = "TaskCreated";
+    public const string TaskCompleted = "TaskCompleted";
+    public const string ProcessCompleted = "ProcessCompleted";
+    public const string WorkflowTransition = "WorkflowTransition";
 }
