@@ -15,7 +15,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.DisplayName).IsRequired().HasMaxLength(256);
         builder.HasIndex(u => new { u.TenantId, u.Username }).IsUnique();
         builder.HasIndex(u => new { u.TenantId, u.Email }).IsUnique();
-        builder.Property(u => u.RowVersion).IsRowVersion();
+        builder.Property(u => u.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
 
         builder.HasOne(u => u.Department)
             .WithMany(d => d.Users)

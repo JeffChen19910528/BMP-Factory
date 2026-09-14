@@ -11,7 +11,7 @@ public class DepartmentConfiguration : IEntityTypeConfiguration<Department>
         builder.ToTable("Departments");
         builder.HasKey(d => d.Id);
         builder.Property(d => d.Name).IsRequired().HasMaxLength(256);
-        builder.Property(d => d.RowVersion).IsRowVersion();
+        builder.Property(d => d.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
 
         builder.HasOne(d => d.Organization)
             .WithMany(o => o.Departments)

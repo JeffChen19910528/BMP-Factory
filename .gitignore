@@ -488,3 +488,6 @@ frontend/dist/
 # Env files with secrets
 .env
 .env.*
+
+# Claude Code recovery checkpoints (local tool state, not project content)
+.claude_recovery/

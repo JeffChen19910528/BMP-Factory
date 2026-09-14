@@ -1,3 +1,4 @@
+using BPM.Domain.Common;
 using BPM.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,5 +21,32 @@ public class BpmDbContext : DbContext
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(BpmDbContext).Assembly);
         base.OnModelCreating(modelBuilder);
+    }
+
+    // PostgreSQL has no server-generated rowversion type (unlike SQL Server), so the
+    // AuditableEntity.RowVersion concurrency token is application-managed: stamp a fresh value on
+    // every insert/update here, and each entity's configuration marks it as a plain concurrency
+    // token (IsConcurrencyToken + ValueGeneratedNever) rather than IsRowVersion (Skill.md §33).
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        StampRowVersions();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        StampRowVersions();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void StampRowVersions()
+    {
+        foreach (var entry in ChangeTracker.Entries<AuditableEntity>())
+        {
+            if (entry.State is EntityState.Added or EntityState.Modified)
+            {
+                entry.Entity.RowVersion = Guid.NewGuid().ToByteArray();
+            }
+        }
     }
 }

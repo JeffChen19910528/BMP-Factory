@@ -12,7 +12,7 @@ public class RoleConfiguration : IEntityTypeConfiguration<Role>
         builder.HasKey(r => r.Id);
         builder.Property(r => r.Name).IsRequired().HasMaxLength(128);
         builder.HasIndex(r => new { r.TenantId, r.Name }).IsUnique();
-        builder.Property(r => r.RowVersion).IsRowVersion();
+        builder.Property(r => r.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
     }
 }
 

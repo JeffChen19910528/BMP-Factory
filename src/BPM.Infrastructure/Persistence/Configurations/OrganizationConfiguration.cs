@@ -11,7 +11,7 @@ public class OrganizationConfiguration : IEntityTypeConfiguration<Organization>
         builder.ToTable("Organizations");
         builder.HasKey(o => o.Id);
         builder.Property(o => o.Name).IsRequired().HasMaxLength(256);
-        builder.Property(o => o.RowVersion).IsRowVersion();
+        builder.Property(o => o.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
 
         builder.HasOne(o => o.Parent)
             .WithMany(o => o.Children)

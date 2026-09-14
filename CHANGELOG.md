@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+- `RowVersion` optimistic concurrency columns failed to insert on PostgreSQL (`23502 NOT NULL
+  violation` on the very first seed write) because `.IsRowVersion()` assumes DB-generated values,
+  which Npgsql doesn't provide. Switched to an application-managed token stamped in
+  `BpmDbContext.SaveChanges(Async)`.
+- `docker-compose.yml` referenced `minio/minio:latest`, which Docker Hub now rejects; switched to
+  `quay.io/minio/minio:latest`.
+
 ### Added
 - Initial solution scaffold: `BPM.Api`, `BPM.Application`, `BPM.Domain`, `BPM.Infrastructure`,
   `BPM.Workflow`, `BPM.Identity`, `BPM.Notification`, `BPM.Tests`.
