@@ -1,0 +1,10 @@
+<Solution>
+  <Project Path="BPM.Api/BPM.Api.csproj" />
+  <Project Path="BPM.Application/BPM.Application.csproj" />
+  <Project Path="BPM.Domain/BPM.Domain.csproj" />
+  <Project Path="BPM.Identity/BPM.Identity.csproj" />
+  <Project Path="BPM.Infrastructure/BPM.Infrastructure.csproj" />
+  <Project Path="BPM.Notification/BPM.Notification.csproj" />
+  <Project Path="BPM.Tests/BPM.Tests.csproj" />
+  <Project Path="BPM.Workflow/BPM.Workflow.csproj" />
+</Solution>

@@ -1,0 +1,6 @@
+@BPM.Api_HostAddress = http://localhost:5288
+
+GET {{BPM.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
