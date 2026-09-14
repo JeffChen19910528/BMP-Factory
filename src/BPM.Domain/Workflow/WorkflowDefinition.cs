@@ -62,12 +62,19 @@ public record ApprovalConfig(
     bool AllowAddApprover = true,
     ReturnPolicy? ReturnPolicy = null);
 
+// Optional form binding for a UserTask node (Skill.md Phase 4 §19). Only a key, never a version —
+// the engine always resolves the form's *currently published* version at the moment the task (and
+// its FormInstance) is created, then pins that FormInstance to it forever after, the same way
+// StartProcessAsync pins a ProcessInstance to the definition's currently published ProcessVersion.
+public record FormReference(string FormDefinitionKey);
+
 public record WorkflowNodeDefinition(
     string Id,
     WorkflowNodeType Type,
     string Name,
     WorkflowAssignment? Assignment = null,
-    ApprovalConfig? Approval = null);
+    ApprovalConfig? Approval = null,
+    FormReference? Form = null);
 
 public record WorkflowTransitionDefinition(string Id, string Source, string Target, string? Name = null);
 

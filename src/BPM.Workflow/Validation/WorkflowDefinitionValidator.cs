@@ -25,14 +25,18 @@ public static class WorkflowDefinitionValidator
         WorkflowNodeType.ApprovalTask,
     };
 
-    // Assignment types a plain UserTask supports — unchanged from Phase 2 (TaskInstance has a
-    // single AssigneeId/AssigneeRole; it has no way to represent "any of these department
-    // members" the way ApprovalAssignment rows do for ApprovalTask). Widening this is possible
-    // later but isn't needed: multi-candidate assignment belongs on ApprovalTask.
+    // Assignment types a plain UserTask supports. User/Role are unchanged from Phase 2.
+    // ProcessInitiator was added in Phase 4 for the canonical "applicant fills out their own
+    // request form" pattern (Skill.md Phase 4 §37's acceptance scenario: Start -> Submit Form,
+    // assigned back to whoever started the process) — it resolves to exactly one user, so it
+    // fits TaskInstance's single AssigneeId model the same way User does. Department/
+    // DepartmentManager stay ApprovalTask-only: TaskInstance has no way to represent "any of
+    // these department members" the way per-user ApprovalAssignment rows do.
     private static readonly HashSet<WorkflowAssignmentType> SupportedUserTaskAssignmentTypes = new()
     {
         WorkflowAssignmentType.User,
         WorkflowAssignmentType.Role,
+        WorkflowAssignmentType.ProcessInitiator,
     };
 
     // Assignment types an ApprovalTask's assignment list entries support (Phase 3 §6: User/Role/

@@ -1,14 +1,12 @@
 # BPM Platform
 
 An enterprise Business Process Management platform — a real, configuration-driven Workflow
-Engine, not a hardcoded "form + approval" app. See `Skill.md` for the full specification and
-`CLAUDE.md` for architecture notes aimed at anyone (human or AI) working in this repo.
+Engine, not a hardcoded "form + approval" app.
 
 ## Status
 
-Phase 1 (Foundation), Phase 2 (Workflow Core), and Phase 3 (Approval Engine) are implemented and
-verified end-to-end against a live PostgreSQL container. See `PROGRESS.md` for exact scope and
-known gaps.
+Phase 1 (Foundation), Phase 2 (Workflow Core), Phase 3 (Approval Engine), and Phase 4 (Form
+Engine) are implemented and verified end-to-end against live PostgreSQL and MinIO containers.
 
 ## Getting started
 
@@ -27,8 +25,18 @@ UI is at `http://localhost:5080/swagger` in Development.
 `frontend/` exists — the build will fail with "path not found".
 
 To develop without Docker for the API itself: run `docker compose up -d postgres redis minio`,
-then `dotnet run --project src/BPM.Api` (see `CLAUDE.md` for the full command list, including EF
-Core migration commands).
+then `dotnet run --project src/BPM.Api` from `src/`.
+
+```bash
+dotnet build                                   # build the whole solution
+dotnet test                                    # run all tests (needs Postgres reachable at
+                                                # localhost:5432 for the integration tests; they
+                                                # create/migrate their own "bpm_test" database)
+
+# EF Core migrations (dotnet-ef installed as a global tool: dotnet tool install --global dotnet-ef)
+dotnet ef migrations add <Name> --project BPM.Infrastructure --startup-project BPM.Api -o Persistence/Migrations
+dotnet ef database update --project BPM.Infrastructure --startup-project BPM.Api
+```
 
 ## Example: define and run a workflow
 
@@ -116,13 +124,58 @@ curl -s -X POST http://localhost:5080/api/tasks/<taskId>/approve -H "Authorizati
 ```
 
 Use `"policy":"AnyOne"` for "first approver wins, rest cancelled" gates, or `"policy":"Sequential"`
-to require multiple resolved approvers to act one at a time in resolution order. See
-`PROGRESS.md`'s Phase 3 section for the full semantics of Reject/Return/Delegate/Transfer/
-AddApprover under each policy.
+to require multiple resolved approvers to act one at a time in resolution order.
+
+## Example: a form-driven task (Phase 4)
+
+A `UserTask` can reference a form; submitting it completes the task and advances the workflow —
+no form-specific code lives in the workflow engine itself.
+
+```bash
+# 1. Define and publish a form
+curl -s -X POST http://localhost:5080/api/form-definitions \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"key":"purchase-request-form","name":"Purchase Request Form"}'
+
+curl -s -X POST http://localhost:5080/api/form-definitions/<id>/versions \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "schema": {
+      "fields": [
+        {"key":"itemName","type":"text","label":"Item Name","required":true},
+        {"key":"quantity","type":"number","label":"Quantity","required":true,"validation":{"minValue":1}},
+        {"key":"amount","type":"currency","label":"Amount","required":true,"validation":{"minValue":0}}
+      ]
+    }
+  }'
+
+curl -s -X POST http://localhost:5080/api/form-definitions/<id>/publish -H "Authorization: Bearer $TOKEN"
+
+# 2. Reference it from a UserTask node when creating a process version
+#    {"id":"submitRequest","type":"UserTask","name":"Submit Request",
+#     "assignment":{"type":"ProcessInitiator","value":""},
+#     "form":{"formDefinitionKey":"purchase-request-form"}}
+
+# 3. Starting the process auto-creates a Draft FormInstance for that task. Fill it in and submit:
+curl -s -X PUT http://localhost:5080/api/form-instances/<id>/data \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"data":{"itemName":"Server","quantity":1,"amount":75000},"expectedVersion":"<from GET .../data>"}'
+
+curl -s -X POST http://localhost:5080/api/form-instances/<id>/submit -H "Authorization: Bearer $TOKEN"
+# -> validates required fields, completes the UserTask, advances the workflow, locks the form —
+#    all in one atomic call.
+
+# Attachments (stored in MinIO, metadata only in Postgres):
+curl -s -X POST http://localhost:5080/api/form-instances/<id>/attachments \
+  -H "Authorization: Bearer $TOKEN" -F "file=@receipt.pdf"
+curl -s http://localhost:5080/api/attachments/<attachmentId> -H "Authorization: Bearer $TOKEN" -o receipt.pdf
+```
 
 ## Documentation map
 
-- `Skill.md` — the governing specification (target architecture, all phases).
-- `CLAUDE.md` — condensed architectural rules and dev commands for anyone working in this repo.
-- `PROGRESS.md` — what's actually built vs. spec, phase by phase.
+- `README.md` (this file) — getting started, worked examples for each phase.
 - `CHANGELOG.md` — notable changes.
+
+This repo is developed with AI assistance; the specification, architectural-decision log, and
+phase-by-phase build notes used during that process are kept locally (gitignored) rather than
+published here.

@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### Added — Phase 4: Form Engine
+- Domain: `FormDefinition`, `FormVersion` (immutable once published), `FormInstance`
+  (Draft/Submitted/Locked/Cancelled), `FormData` (values kept separate from schema), `Attachment`
+  (metadata only — bytes live in MinIO).
+- `FormSchemaValidator` and `FormDataValidator` (`BPM.Workflow`): fail-closed, declarative-only
+  (no expression engine) validation of form schemas and submitted values.
+- `FormEngine` (`BPM.Workflow.Engine`): publish, create/save/submit/cancel a `FormInstance`.
+  Submitting a form bound to a UserTask completes that task and advances the workflow via the
+  same shared transition code `ApprovalEngine` uses — `WorkflowEngine` has no form-specific code.
+- Workflow integration: `WorkflowNodeDefinition.Form` lets a UserTask reference a form
+  definition; the engine auto-creates a pinned `FormInstance` when it creates that task.
+  `UserTask` assignment gained `ProcessInitiator` support (previously User/Role only) for the
+  "applicant fills their own form" pattern.
+- `IFormAuthorizationService`: shared identity check (creator / task assignee / process
+  approvers / initiator) used by both reads and writes so the two surfaces can't drift.
+- Real MinIO-backed attachment upload/download/list/delete, with size limits, path-traversal
+  protection, and content-type/extension cross-checking (never trusts the client's declared MIME
+  type).
+- New API: `/api/form-definitions` (+ `/versions`, `/publish`), `/api/form-instances` (+ `/data`,
+  `/submit`, `/cancel`, `/attachments`), `/api/attachments/{id}`.
+- 36 new tests (22 unit, 14 integration against live Postgres — including a full
+  workflow+form+approval integration test using the real engines together) — 93/93 total, zero
+  regressions in the 57 from Phase 2/3.
+- Verified live against Docker: the complete Skill.md §37 acceptance scenario end to end, plus
+  real file upload/download round-tripped through MinIO.
+
+### Changed — Refactor pass
+- Each layer (`BPM.Infrastructure`, `BPM.Identity`, `BPM.Workflow`) now owns its own DI
+  registration via an `AddXxx()` extension method instead of `Program.cs` wiring ~15 concrete
+  services directly; `Program.cs` no longer references concrete types from those layers.
+- Added `ICurrentUserService.RequireUserId()`, removing 10 repeated unsafe `UserId!.Value` casts.
+- `CLAUDE.md`/`Skill.md`/`PROGRESS.md` are gitignored and were purged from git history before the
+  first push — they're AI-assisted-dev context, kept locally only, not part of the public repo.
+
 ### Added — Phase 3: Approval Engine
 - Domain: `ApprovalInstance` and `ApprovalAssignment` — a 1:1/1:N runtime companion to
   `TaskInstance` for `ApprovalTask` nodes (plain `UserTask` is unchanged).

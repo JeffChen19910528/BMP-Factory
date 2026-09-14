@@ -1,6 +1,7 @@
 using BPM.Application.Audit;
 using BPM.Application.Common;
 using BPM.Application.Departments;
+using BPM.Application.Forms;
 using BPM.Application.Organizations;
 using BPM.Application.Processes;
 using BPM.Application.Roles;
@@ -41,7 +42,14 @@ public static class DependencyInjection
         services.AddScoped<IProcessDefinitionService, ProcessDefinitionService>();
         services.AddScoped<IProcessInstanceQueryService, ProcessInstanceQueryService>();
         services.AddScoped<ITaskQueryService, TaskQueryService>();
+        services.AddScoped<IFormDefinitionService, FormDefinitionService>();
+        services.AddScoped<IFormInstanceQueryService, FormInstanceQueryService>();
+        services.AddScoped<IFormAuthorizationService, FormAuthorizationService>();
+        services.AddScoped<IAttachmentService, AttachmentService>();
         services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
+
+        services.Configure<MinioSettings>(configuration.GetSection(MinioSettings.SectionName));
+        services.AddSingleton<IAttachmentStorage, MinioAttachmentStorage>();
 
         // Registered here (not in BPM.Application, where the validators themselves live) because
         // this is the layer that consumes them (ProcessDefinitionService injects IValidator<T>).

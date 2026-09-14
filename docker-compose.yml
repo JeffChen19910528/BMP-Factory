@@ -44,6 +44,10 @@ services:
       Jwt__Secret: "${JWT_SECRET:?JWT_SECRET must be set — see DEPLOYMENT.md}"
       Jwt__Issuer: "bpm-platform"
       Jwt__Audience: "bpm-platform"
+      Minio__Endpoint: "minio:9000"
+      Minio__AccessKey: "bpm"
+      Minio__SecretKey: "bpm12345"
+      Minio__BucketName: "bpm-attachments"
     ports:
       - "5080:8080"
     depends_on:

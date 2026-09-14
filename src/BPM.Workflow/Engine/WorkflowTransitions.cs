@@ -61,9 +61,18 @@ internal static class WorkflowTransitions
                     NodeName = node.Name,
                     Status = TaskInstanceStatus.Pending,
                 };
-                ApplyUserTaskAssignment(task, node);
+                ApplyUserTaskAssignment(task, node, instance.InitiatorId);
                 db.TaskInstances.Add(task);
                 db.AuditLogs.Add(NewAuditLog(actingUserId, AuditActions.TaskCreated, nameof(TaskInstance), task.Id.ToString(), new { task.NodeId, task.ProcessInstanceId }));
+
+                // Skill.md Phase 4 §19: a UserTask node may reference a form; the FormInstance is
+                // created alongside the task, pinned to whichever FormVersion is currently
+                // published (never re-resolved later — see FormInstance's doc comment).
+                if (node.Form is not null)
+                {
+                    await FormEngine.CreateInstanceForTaskAsync(db, instance.Id, task.Id, node.Form.FormDefinitionKey, actingUserId, cancellationToken);
+                }
+
                 return task;
             }
 
@@ -77,7 +86,7 @@ internal static class WorkflowTransitions
         }
     }
 
-    private static void ApplyUserTaskAssignment(TaskInstance task, WorkflowNodeDefinition node)
+    private static void ApplyUserTaskAssignment(TaskInstance task, WorkflowNodeDefinition node, Guid processInitiatorId)
     {
         var assignment = node.Assignment
             ?? throw new ConflictAppException("MISSING_ASSIGNMENT", $"Node '{node.Id}' has no assignment configured.");
@@ -86,6 +95,9 @@ internal static class WorkflowTransitions
         {
             case WorkflowAssignmentType.User:
                 task.AssigneeId = Guid.Parse(assignment.Value);
+                break;
+            case WorkflowAssignmentType.ProcessInitiator:
+                task.AssigneeId = processInitiatorId;
                 break;
             case WorkflowAssignmentType.Role:
                 task.AssigneeRole = assignment.Value;

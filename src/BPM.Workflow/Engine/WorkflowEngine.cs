@@ -57,6 +57,27 @@ public class WorkflowEngine : IWorkflowEngine
                 validation.Errors.Select(e => (e.Code, e.Message)).ToList());
         }
 
+        // Skill.md Phase 4 §19: a UserTask's form reference names a FormDefinition by key, which
+        // WorkflowDefinitionValidator (pure, DB-free) can't check exists — verified here instead,
+        // the same "fail closed at publish time" principle, just requiring a DB round trip.
+        var formKeys = parsed!.Nodes.Where(n => n.Form is not null).Select(n => n.Form!.FormDefinitionKey).Distinct().ToList();
+        if (formKeys.Count > 0)
+        {
+            var publishedFormKeys = await _db.FormDefinitions
+                .Where(f => formKeys.Contains(f.Key) && f.Status == FormDefinitionStatus.Published)
+                .Select(f => f.Key)
+                .ToListAsync(cancellationToken);
+
+            var missing = formKeys.Except(publishedFormKeys).ToList();
+            if (missing.Count > 0)
+            {
+                throw new ValidationAppException(
+                    "WORKFLOW_DEFINITION_INVALID",
+                    "Workflow definition references forms that don't exist or aren't published.",
+                    missing.Select(key => ("FORM_REFERENCE_INVALID", $"Referenced form '{key}' does not exist or has no published version.")).ToList());
+            }
+        }
+
         draft.Status = ProcessVersionStatus.Published;
         draft.PublishedBy = publishedBy;
         draft.PublishedAt = DateTime.UtcNow;

@@ -24,6 +24,12 @@ public class BpmDbContext : DbContext
     public DbSet<ApprovalInstance> ApprovalInstances => Set<ApprovalInstance>();
     public DbSet<ApprovalAssignment> ApprovalAssignments => Set<ApprovalAssignment>();
 
+    public DbSet<FormDefinition> FormDefinitions => Set<FormDefinition>();
+    public DbSet<FormVersion> FormVersions => Set<FormVersion>();
+    public DbSet<FormInstance> FormInstances => Set<FormInstance>();
+    public DbSet<FormData> FormData => Set<FormData>();
+    public DbSet<Attachment> Attachments => Set<Attachment>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(BpmDbContext).Assembly);

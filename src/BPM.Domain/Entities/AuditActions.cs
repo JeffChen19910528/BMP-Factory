@@ -36,4 +36,16 @@ public static class AuditActions
     public const string ApprovalTransferred = "ApprovalTransferred";
     public const string ApproverAdded = "ApproverAdded";
     public const string ApprovalCompleted = "ApprovalCompleted";
+
+    // Form engine events (Phase 4, Skill.md §25).
+    public const string FormCreated = "FormCreated";
+    public const string FormVersionCreated = "FormVersionCreated";
+    public const string FormVersionPublished = "FormVersionPublished";
+    public const string FormInstanceCreated = "FormInstanceCreated";
+    public const string FormDataUpdated = "FormDataUpdated";
+    public const string FormSubmitted = "FormSubmitted";
+    public const string FormLocked = "FormLocked";
+    public const string FormCancelled = "FormCancelled";
+    public const string AttachmentUploaded = "AttachmentUploaded";
+    public const string AttachmentDeleted = "AttachmentDeleted";
 }
