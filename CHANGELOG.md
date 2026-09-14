@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### Added — Phase 3: Approval Engine
+- Domain: `ApprovalInstance` and `ApprovalAssignment` — a 1:1/1:N runtime companion to
+  `TaskInstance` for `ApprovalTask` nodes (plain `UserTask` is unchanged).
+- `AssignmentResolver` (`BPM.Workflow.Engine`): resolves User/Role/Department/DepartmentManager/
+  ProcessInitiator assignments to concrete user ids server-side.
+- `ApprovalEngine` (`BPM.Workflow.Engine`, internal): Approve/Reject/Return/Delegate/Transfer/
+  AddApprover, implementing Sequential/All/AnyOne approval policies. Shares transition logic with
+  `WorkflowEngine` via a new `WorkflowTransitions` helper rather than duplicating it.
+- New API: `POST /api/tasks/{id}/approve`, `/reject`, `/return`, `/delegate`, `/transfer`,
+  `/approvers` — mutually exclusive with `/complete` per task (enforced server-side).
+- `TaskDto.Approval` (nullable `ApprovalSummaryDto`) exposes per-assignment approval state; `GET
+  /api/tasks` now also includes tasks where the caller holds or was delegated an approval slot.
+- Reuses Phase 2's `RowVersion` optimistic concurrency mechanism (no new concurrency approach) and
+  the same state-check idempotency pattern.
+- New audit actions: `ApprovalAssigned/Approved/Rejected/Returned/Delegated/Transferred`,
+  `ApproverAdded`, `ApprovalCompleted`.
+- Migration `AddApprovalEngine`; 33 new tests (9 pure validator unit tests, 24 integration tests
+  against live Postgres) — 57/57 passing total, zero regressions in Phase 2's 24.
+- Verified live: all three Skill.md §38 acceptance scenarios (Purchase Request sequential-node
+  approval with Reject/Return/Transfer, Expense Request All-policy across three roles plus a
+  live AddApprover, Leave Request AnyOne-policy across three named users).
+
+### Fixed — Phase 3
+- `ApprovalEngine.ResolveActingAssignment` crashed with an unhandled `InvalidOperationException`
+  (`SingleOrDefault` on more than one match) when a user was simultaneously a direct approval
+  candidate on their own assignment and the delegate for a different assignment on the same
+  `ApprovalInstance`. Found during live testing (Return + Delegate against a user who already
+  held the relevant role from earlier test data), not by the test suite first. Fixed to prefer
+  the direct match, falling back to the earliest-order delegate match.
+
 ### Added — Phase 2: Workflow Core
 - Domain: `ProcessDefinition`, `ProcessVersion` (immutable once published), `ProcessInstance`,
   `TaskInstance`; workflow graph POCOs (`BPM.Domain.Workflow.WorkflowDefinition`) serialized as

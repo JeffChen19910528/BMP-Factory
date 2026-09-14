@@ -6,8 +6,9 @@ Engine, not a hardcoded "form + approval" app. See `Skill.md` for the full speci
 
 ## Status
 
-Phase 1 (Foundation) and Phase 2 (Workflow Core) are implemented and verified end-to-end against
-a live PostgreSQL container. See `PROGRESS.md` for exact scope and known gaps.
+Phase 1 (Foundation), Phase 2 (Workflow Core), and Phase 3 (Approval Engine) are implemented and
+verified end-to-end against a live PostgreSQL container. See `PROGRESS.md` for exact scope and
+known gaps.
 
 ## Getting started
 
@@ -72,6 +73,52 @@ curl -s -X POST http://localhost:5080/api/process-instances \
 curl -s http://localhost:5080/api/tasks -H "Authorization: Bearer $MANAGER_TOKEN"
 curl -s -X POST http://localhost:5080/api/tasks/<taskId>/complete -H "Authorization: Bearer $MANAGER_TOKEN"
 ```
+
+## Example: an approval workflow (Phase 3)
+
+`ApprovalTask` nodes support Sequential/All/AnyOne policies over multiple resolved approvers
+(Role/Department resolve to every member; User/ProcessInitiator/DepartmentManager resolve to one).
+Use `POST .../approve`, `/reject`, `/return`, `/delegate`, `/transfer`, `/approvers` instead of
+`/complete` for these tasks.
+
+```bash
+# An "All" gate requiring one approver from each of three roles — the process stays Running
+# until Finance, Legal, and IT have all individually approved the same task.
+curl -s -X POST http://localhost:5080/api/process-definitions/<id>/versions \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "definition": {
+      "nodes": [
+        {"id":"start","type":"Start","name":"Start"},
+        {"id":"approval","type":"ApprovalTask","name":"Expense Approval","approval":{
+          "policy":"All",
+          "assignments":[
+            {"type":"Role","value":"Finance"},
+            {"type":"Role","value":"Legal"},
+            {"type":"Role","value":"IT"}
+          ],
+          "allowReject":true,"allowReturn":true,"allowDelegate":true,"allowTransfer":true,"allowAddApprover":true
+        }},
+        {"id":"end","type":"End","name":"End"}
+      ],
+      "transitions": [
+        {"id":"t1","source":"start","target":"approval"},
+        {"id":"t2","source":"approval","target":"end"}
+      ]
+    }
+  }'
+
+# Each approver acts independently on the same task id:
+curl -s -X POST http://localhost:5080/api/tasks/<taskId>/approve -H "Authorization: Bearer $FINANCE_TOKEN"
+curl -s -X POST http://localhost:5080/api/tasks/<taskId>/approve -H "Authorization: Bearer $LEGAL_TOKEN"
+curl -s -X POST http://localhost:5080/api/tasks/<taskId>/approve -H "Authorization: Bearer $IT_TOKEN"
+# -> only the third call flips the task (and process) to Completed.
+```
+
+Use `"policy":"AnyOne"` for "first approver wins, rest cancelled" gates, or `"policy":"Sequential"`
+to require multiple resolved approvers to act one at a time in resolution order. See
+`PROGRESS.md`'s Phase 3 section for the full semantics of Reject/Return/Delegate/Transfer/
+AddApprover under each policy.
 
 ## Documentation map
 

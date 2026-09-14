@@ -15,16 +15,24 @@ namespace BPM.Workflow.Engine;
 // a single DbContext-managed transaction covers the whole operation — there is no window where a
 // task is "completed" but the next task or the audit trail is missing (Skill.md §18).
 //
-// Phase 2 scope: strictly sequential graphs (Start -> UserTask* -> End), enforced at publish time
-// by WorkflowDefinitionValidator (every non-End node has exactly one outgoing transition). There
-// is deliberately no gateway/branching evaluation here yet.
+// As of Phase 3, ApprovalTask-specific actions (Approve/Reject/Return/Delegate/Transfer/
+// AddApprover) delegate to ApprovalEngine, a separate class per Skill.md Phase 3 §5's
+// "Approval Engine must not duplicate the Workflow Engine" — but both share this same DbContext
+// and both funnel "move to the next node" through WorkflowTransitions, so the atomicity and
+// audit-trail guarantees above hold across the whole surface, not just the Phase 2 methods.
+//
+// Graphs are still strictly sequential (Start -> (UserTask|ApprovalTask)* -> End), enforced at
+// publish time by WorkflowDefinitionValidator (every non-End node has exactly one outgoing
+// transition) — there is deliberately no gateway/branching evaluation here yet.
 public class WorkflowEngine : IWorkflowEngine
 {
     private readonly BpmDbContext _db;
+    private readonly ApprovalEngine _approvalEngine;
 
     public WorkflowEngine(BpmDbContext db)
     {
         _db = db;
+        _approvalEngine = new ApprovalEngine(db);
     }
 
     public async Task<ProcessVersionDto> PublishVersionAsync(Guid processDefinitionId, Guid publishedBy, CancellationToken cancellationToken = default)
@@ -56,7 +64,7 @@ public class WorkflowEngine : IWorkflowEngine
         definition.Status = ProcessDefinitionStatus.Published;
         definition.CurrentVersionId = draft.Id;
 
-        _db.AuditLogs.Add(NewAuditLog(publishedBy, AuditActions.PublishProcess, nameof(ProcessVersion), draft.Id.ToString(), new { draft.ProcessDefinitionId, draft.VersionNumber }));
+        _db.AuditLogs.Add(WorkflowTransitions.NewAuditLog(publishedBy, AuditActions.PublishProcess, nameof(ProcessVersion), draft.Id.ToString(), new { draft.ProcessDefinitionId, draft.VersionNumber }));
 
         await _db.SaveChangesAsync(cancellationToken);
 
@@ -92,9 +100,9 @@ public class WorkflowEngine : IWorkflowEngine
         };
         _db.ProcessInstances.Add(instance);
 
-        _db.AuditLogs.Add(NewAuditLog(initiatorId, AuditActions.StartProcess, nameof(ProcessInstance), instance.Id.ToString(), new { definition.Key, version.VersionNumber, instance.BusinessKey }));
+        _db.AuditLogs.Add(WorkflowTransitions.NewAuditLog(initiatorId, AuditActions.StartProcess, nameof(ProcessInstance), instance.Id.ToString(), new { definition.Key, version.VersionNumber, instance.BusinessKey }));
 
-        AdvanceFrom(graph, startNode, instance, initiatorId);
+        await WorkflowTransitions.AdvanceFromAsync(_db, graph, startNode, instance, initiatorId, cancellationToken);
 
         await _db.SaveChangesAsync(cancellationToken);
 
@@ -108,9 +116,17 @@ public class WorkflowEngine : IWorkflowEngine
             .SingleOrDefaultAsync(t => t.Id == taskId, cancellationToken)
             ?? throw new NotFoundAppException("TASK_NOT_FOUND", $"Task '{taskId}' was not found.");
 
+        // ApprovalTask tasks have their own action set (Skill.md Phase 3 §25) — completing one
+        // directly would bypass approval policy entirely.
+        var isApprovalTask = await _db.ApprovalInstances.AnyAsync(a => a.TaskInstanceId == taskId, cancellationToken);
+        if (isApprovalTask)
+        {
+            throw new BadRequestAppException("TASK_IS_APPROVAL_TASK", $"Task '{taskId}' is an approval task; use POST /api/tasks/{{id}}/approve (or reject/return) instead.");
+        }
+
         // Idempotency by state check (Skill.md §20 — deliberately not over-engineered with an
-        // Idempotency-Key store for Phase 2): a retry of an already-completed task fails here
-        // instead of creating a second next-task or double-completing the process.
+        // Idempotency-Key store): a retry of an already-completed task fails here instead of
+        // creating a second next-task or double-completing the process.
         if (task.Status != TaskInstanceStatus.Pending && task.Status != TaskInstanceStatus.InProgress)
         {
             throw new ConflictAppException("TASK_ALREADY_COMPLETED", $"Task '{taskId}' is already {task.Status}.");
@@ -126,14 +142,14 @@ public class WorkflowEngine : IWorkflowEngine
         task.Status = TaskInstanceStatus.Completed;
         task.CompletedAt = DateTime.UtcNow;
 
-        _db.AuditLogs.Add(NewAuditLog(currentUserId, AuditActions.TaskCompleted, nameof(TaskInstance), task.Id.ToString(), new { task.NodeId, task.ProcessInstanceId }));
+        _db.AuditLogs.Add(WorkflowTransitions.NewAuditLog(currentUserId, AuditActions.TaskCompleted, nameof(TaskInstance), task.Id.ToString(), new { task.NodeId, task.ProcessInstanceId }));
 
         var version = await _db.ProcessVersions.SingleAsync(v => v.Id == task.ProcessInstance.ProcessVersionId, cancellationToken);
         var graph = WorkflowJson.TryDeserialize(version.DefinitionJson)
             ?? throw new ConflictAppException("PROCESS_VERSION_CORRUPT", "The process version's definition could not be parsed.");
 
         var currentNode = graph.Nodes.Single(n => n.Id == task.NodeId);
-        AdvanceFrom(graph, currentNode, task.ProcessInstance, currentUserId);
+        await WorkflowTransitions.AdvanceFromAsync(_db, graph, currentNode, task.ProcessInstance, currentUserId, cancellationToken);
 
         try
         {
@@ -149,69 +165,23 @@ public class WorkflowEngine : IWorkflowEngine
         return new TaskDto(task.Id, task.ProcessInstanceId, task.NodeId, task.NodeName, task.AssigneeId, task.AssigneeRole, task.Status, task.CreatedAt, task.StartedAt, task.CompletedAt, task.DueAt);
     }
 
-    // Walks exactly one outgoing transition from `fromNode` (Phase 2 has no branching — enforced
-    // by the validator at publish time) and either creates the next TaskInstance or completes the
-    // process instance when the target is an End node.
-    private void AdvanceFrom(WorkflowDefinition graph, WorkflowNodeDefinition fromNode, ProcessInstance instance, Guid actingUserId)
-    {
-        var transition = graph.Transitions.SingleOrDefault(t => t.Source == fromNode.Id);
-        if (transition is null)
-        {
-            // Only reachable if a published version's graph is inconsistent with what the
-            // validator checked at publish time (e.g. corrupted data) — fail closed rather than
-            // leaving the instance stuck with no way to progress.
-            throw new ConflictAppException("WORKFLOW_TRANSITION_MISSING", $"Node '{fromNode.Id}' has no outgoing transition.");
-        }
+    public Task<TaskDto> ApproveTaskAsync(Guid taskId, Guid currentUserId, IReadOnlyCollection<string> currentUserRoles, CancellationToken cancellationToken = default) =>
+        _approvalEngine.ApproveAsync(taskId, currentUserId, currentUserRoles, cancellationToken);
 
-        var targetNode = graph.Nodes.Single(n => n.Id == transition.Target);
+    public Task<TaskDto> RejectTaskAsync(Guid taskId, Guid currentUserId, IReadOnlyCollection<string> currentUserRoles, CancellationToken cancellationToken = default) =>
+        _approvalEngine.RejectAsync(taskId, currentUserId, currentUserRoles, cancellationToken);
 
-        _db.AuditLogs.Add(NewAuditLog(actingUserId, AuditActions.WorkflowTransition, nameof(ProcessInstance), instance.Id.ToString(), new { transition.Id, From = fromNode.Id, To = targetNode.Id }));
+    public Task<TaskDto> ReturnTaskAsync(Guid taskId, Guid currentUserId, IReadOnlyCollection<string> currentUserRoles, CancellationToken cancellationToken = default) =>
+        _approvalEngine.ReturnAsync(taskId, currentUserId, currentUserRoles, cancellationToken);
 
-        switch (targetNode.Type)
-        {
-            case WorkflowNodeType.End:
-                instance.Status = ProcessInstanceStatus.Completed;
-                instance.CompletedAt = DateTime.UtcNow;
-                _db.AuditLogs.Add(NewAuditLog(actingUserId, AuditActions.ProcessCompleted, nameof(ProcessInstance), instance.Id.ToString()));
-                break;
+    public Task<TaskDto> DelegateTaskAsync(Guid taskId, Guid currentUserId, Guid delegateToUserId, CancellationToken cancellationToken = default) =>
+        _approvalEngine.DelegateAsync(taskId, currentUserId, delegateToUserId, cancellationToken);
 
-            case WorkflowNodeType.UserTask:
-                var task = new TaskInstance
-                {
-                    ProcessInstanceId = instance.Id,
-                    NodeId = targetNode.Id,
-                    NodeName = targetNode.Name,
-                    Status = TaskInstanceStatus.Pending,
-                };
-                ApplyAssignment(task, targetNode);
-                _db.TaskInstances.Add(task);
-                _db.AuditLogs.Add(NewAuditLog(actingUserId, AuditActions.TaskCreated, nameof(TaskInstance), task.Id.ToString(), new { task.NodeId, task.ProcessInstanceId }));
-                break;
+    public Task<TaskDto> TransferTaskAsync(Guid taskId, Guid currentUserId, IReadOnlyCollection<string> currentUserRoles, Guid newUserId, string? reason, CancellationToken cancellationToken = default) =>
+        _approvalEngine.TransferAsync(taskId, currentUserId, currentUserRoles, newUserId, reason, cancellationToken);
 
-            default:
-                // Blocked at publish time by WorkflowDefinitionValidator's UNSUPPORTED_NODE_TYPE
-                // check; defensive fail-closed guard in case a version predates that check.
-                throw new ConflictAppException("UNSUPPORTED_NODE_TYPE", $"Node '{targetNode.Id}' has type '{targetNode.Type}', which the engine cannot execute.");
-        }
-    }
-
-    private static void ApplyAssignment(TaskInstance task, WorkflowNodeDefinition node)
-    {
-        var assignment = node.Assignment
-            ?? throw new ConflictAppException("MISSING_ASSIGNMENT", $"Node '{node.Id}' has no assignment configured.");
-
-        switch (assignment.Type)
-        {
-            case WorkflowAssignmentType.User:
-                task.AssigneeId = Guid.Parse(assignment.Value);
-                break;
-            case WorkflowAssignmentType.Role:
-                task.AssigneeRole = assignment.Value;
-                break;
-            default:
-                throw new ConflictAppException("UNSUPPORTED_ASSIGNMENT_TYPE", $"Assignment type '{assignment.Type}' is not yet supported.");
-        }
-    }
+    public Task<TaskDto> AddApproverAsync(Guid taskId, Guid currentUserId, IReadOnlyCollection<string> currentUserRoles, Guid newApproverUserId, CancellationToken cancellationToken = default) =>
+        _approvalEngine.AddApproverAsync(taskId, currentUserId, currentUserRoles, newApproverUserId, cancellationToken);
 
     private static void EnsureAuthorized(TaskInstance task, Guid currentUserId, IReadOnlyCollection<string> currentUserRoles)
     {
@@ -237,14 +207,4 @@ public class WorkflowEngine : IWorkflowEngine
 
         throw new ConflictAppException("TASK_UNASSIGNED", $"Task '{task.Id}' has no assignee or role configured.");
     }
-
-    private static AuditLog NewAuditLog(Guid userId, string action, string entityType, string entityId, object? newValue = null) =>
-        new()
-        {
-            UserId = userId,
-            Action = action,
-            EntityType = entityType,
-            EntityId = entityId,
-            NewValue = newValue is null ? null : System.Text.Json.JsonSerializer.Serialize(newValue),
-        };
 }

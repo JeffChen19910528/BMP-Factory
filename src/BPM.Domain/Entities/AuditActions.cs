@@ -24,4 +24,16 @@ public static class AuditActions
     public const string TaskCompleted = "TaskCompleted";
     public const string ProcessCompleted = "ProcessCompleted";
     public const string WorkflowTransition = "WorkflowTransition";
+
+    // Approval engine events (Phase 3, Skill.md §24). Distinct from the generic
+    // Approve/Reject/Return/Delegate/AddApprover constants above (reserved from Phase 1's
+    // canonical list) so approval-specific audit entries can be filtered unambiguously.
+    public const string ApprovalAssigned = "ApprovalAssigned";
+    public const string ApprovalApproved = "ApprovalApproved";
+    public const string ApprovalRejected = "ApprovalRejected";
+    public const string ApprovalReturned = "ApprovalReturned";
+    public const string ApprovalDelegated = "ApprovalDelegated";
+    public const string ApprovalTransferred = "ApprovalTransferred";
+    public const string ApproverAdded = "ApproverAdded";
+    public const string ApprovalCompleted = "ApprovalCompleted";
 }

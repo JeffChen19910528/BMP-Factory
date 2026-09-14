@@ -21,6 +21,8 @@ public class BpmDbContext : DbContext
     public DbSet<ProcessVersion> ProcessVersions => Set<ProcessVersion>();
     public DbSet<ProcessInstance> ProcessInstances => Set<ProcessInstance>();
     public DbSet<TaskInstance> TaskInstances => Set<TaskInstance>();
+    public DbSet<ApprovalInstance> ApprovalInstances => Set<ApprovalInstance>();
+    public DbSet<ApprovalAssignment> ApprovalAssignments => Set<ApprovalAssignment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

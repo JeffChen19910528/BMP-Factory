@@ -25,4 +25,5 @@ public record TaskDto(
     DateTime CreatedAt,
     DateTime? StartedAt,
     DateTime? CompletedAt,
-    DateTime? DueAt);
+    DateTime? DueAt,
+    ApprovalSummaryDto? Approval = null);

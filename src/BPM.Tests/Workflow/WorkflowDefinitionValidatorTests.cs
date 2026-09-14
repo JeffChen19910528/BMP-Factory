@@ -1,3 +1,4 @@
+using BPM.Domain.Entities;
 using BPM.Domain.Workflow;
 using BPM.Workflow.Validation;
 using Xunit;
@@ -242,5 +243,193 @@ public class WorkflowDefinitionValidatorTests
         var result = WorkflowDefinitionValidator.Validate(definition);
 
         Assert.Contains(result.Errors, e => e.Code == "MULTIPLE_OUTGOING_TRANSITIONS");
+    }
+
+    // ---- Phase 3: ApprovalTask ----
+
+    private static WorkflowDefinition ValidApprovalDefinition(ApprovalPolicy policy = ApprovalPolicy.All) => new(
+        Nodes: new[]
+        {
+            new WorkflowNodeDefinition("start", WorkflowNodeType.Start, "Start"),
+            new WorkflowNodeDefinition("approval", WorkflowNodeType.ApprovalTask, "Approval", Approval: new ApprovalConfig(
+                policy,
+                new[] { new WorkflowAssignment(WorkflowAssignmentType.Role, "Manager") })),
+            new WorkflowNodeDefinition("end", WorkflowNodeType.End, "End"),
+        },
+        Transitions: new[]
+        {
+            new WorkflowTransitionDefinition("t1", "start", "approval"),
+            new WorkflowTransitionDefinition("t2", "approval", "end"),
+        });
+
+    [Fact]
+    public void Validate_ValidApprovalTaskDefinition_Passes()
+    {
+        var result = WorkflowDefinitionValidator.Validate(ValidApprovalDefinition());
+
+        Assert.True(result.IsValid);
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void Validate_ApprovalTaskMissingApprovalConfig_Rejected()
+    {
+        var definition = ValidApprovalDefinition() with
+        {
+            Nodes = new[]
+            {
+                new WorkflowNodeDefinition("start", WorkflowNodeType.Start, "Start"),
+                new WorkflowNodeDefinition("approval", WorkflowNodeType.ApprovalTask, "Approval"),
+                new WorkflowNodeDefinition("end", WorkflowNodeType.End, "End"),
+            },
+        };
+
+        var result = WorkflowDefinitionValidator.Validate(definition);
+
+        Assert.Contains(result.Errors, e => e.Code == "MISSING_APPROVAL_CONFIG");
+    }
+
+    [Fact]
+    public void Validate_ApprovalTaskEmptyAssignments_Rejected()
+    {
+        var definition = ValidApprovalDefinition() with
+        {
+            Nodes = new[]
+            {
+                new WorkflowNodeDefinition("start", WorkflowNodeType.Start, "Start"),
+                new WorkflowNodeDefinition("approval", WorkflowNodeType.ApprovalTask, "Approval", Approval: new ApprovalConfig(ApprovalPolicy.All, Array.Empty<WorkflowAssignment>())),
+                new WorkflowNodeDefinition("end", WorkflowNodeType.End, "End"),
+            },
+        };
+
+        var result = WorkflowDefinitionValidator.Validate(definition);
+
+        Assert.Contains(result.Errors, e => e.Code == "EMPTY_APPROVAL_ASSIGNMENTS");
+    }
+
+    [Fact]
+    public void Validate_ApprovalTaskWithPlainAssignment_Rejected()
+    {
+        var definition = ValidApprovalDefinition() with
+        {
+            Nodes = new[]
+            {
+                new WorkflowNodeDefinition("start", WorkflowNodeType.Start, "Start"),
+                new WorkflowNodeDefinition(
+                    "approval",
+                    WorkflowNodeType.ApprovalTask,
+                    "Approval",
+                    Assignment: new WorkflowAssignment(WorkflowAssignmentType.Role, "Manager"),
+                    Approval: new ApprovalConfig(ApprovalPolicy.All, new[] { new WorkflowAssignment(WorkflowAssignmentType.Role, "Manager") })),
+                new WorkflowNodeDefinition("end", WorkflowNodeType.End, "End"),
+            },
+        };
+
+        var result = WorkflowDefinitionValidator.Validate(definition);
+
+        Assert.Contains(result.Errors, e => e.Code == "UNEXPECTED_ASSIGNMENT");
+    }
+
+    [Fact]
+    public void Validate_UserTaskWithApprovalConfig_Rejected()
+    {
+        var definition = ValidSequentialDefinition() with
+        {
+            Nodes = new[]
+            {
+                new WorkflowNodeDefinition("start", WorkflowNodeType.Start, "Start"),
+                new WorkflowNodeDefinition(
+                    "approval",
+                    WorkflowNodeType.UserTask,
+                    "Approval",
+                    Assignment: new WorkflowAssignment(WorkflowAssignmentType.Role, "Manager"),
+                    Approval: new ApprovalConfig(ApprovalPolicy.All, new[] { new WorkflowAssignment(WorkflowAssignmentType.Role, "Manager") })),
+                new WorkflowNodeDefinition("end", WorkflowNodeType.End, "End"),
+            },
+        };
+
+        var result = WorkflowDefinitionValidator.Validate(definition);
+
+        Assert.Contains(result.Errors, e => e.Code == "UNEXPECTED_APPROVAL_CONFIG");
+    }
+
+    [Fact]
+    public void Validate_ApprovalTaskDepartmentAssignmentWithNonGuidValue_Rejected()
+    {
+        var definition = ValidApprovalDefinition() with
+        {
+            Nodes = new[]
+            {
+                new WorkflowNodeDefinition("start", WorkflowNodeType.Start, "Start"),
+                new WorkflowNodeDefinition("approval", WorkflowNodeType.ApprovalTask, "Approval", Approval: new ApprovalConfig(
+                    ApprovalPolicy.All,
+                    new[] { new WorkflowAssignment(WorkflowAssignmentType.Department, "not-a-guid") })),
+                new WorkflowNodeDefinition("end", WorkflowNodeType.End, "End"),
+            },
+        };
+
+        var result = WorkflowDefinitionValidator.Validate(definition);
+
+        Assert.Contains(result.Errors, e => e.Code == "INVALID_ASSIGNMENT_VALUE");
+    }
+
+    [Fact]
+    public void Validate_ApprovalTaskUnsupportedAssignmentType_Rejected()
+    {
+        var definition = ValidApprovalDefinition() with
+        {
+            Nodes = new[]
+            {
+                new WorkflowNodeDefinition("start", WorkflowNodeType.Start, "Start"),
+                new WorkflowNodeDefinition("approval", WorkflowNodeType.ApprovalTask, "Approval", Approval: new ApprovalConfig(
+                    ApprovalPolicy.All,
+                    new[] { new WorkflowAssignment(WorkflowAssignmentType.Manager, "x") })),
+                new WorkflowNodeDefinition("end", WorkflowNodeType.End, "End"),
+            },
+        };
+
+        var result = WorkflowDefinitionValidator.Validate(definition);
+
+        Assert.Contains(result.Errors, e => e.Code == "UNSUPPORTED_ASSIGNMENT_TYPE");
+    }
+
+    [Fact]
+    public void Validate_UserTaskDoesNotSupportDepartmentAssignment_Rejected()
+    {
+        // Department/DepartmentManager/ProcessInitiator are ApprovalTask-only (Phase 3) — a plain
+        // UserTask keeps Phase 2's User/Role-only assignment support.
+        var definition = ValidSequentialDefinition() with
+        {
+            Nodes = new[]
+            {
+                new WorkflowNodeDefinition("start", WorkflowNodeType.Start, "Start"),
+                new WorkflowNodeDefinition("approval", WorkflowNodeType.UserTask, "Approval", new WorkflowAssignment(WorkflowAssignmentType.Department, Guid.NewGuid().ToString())),
+                new WorkflowNodeDefinition("end", WorkflowNodeType.End, "End"),
+            },
+        };
+
+        var result = WorkflowDefinitionValidator.Validate(definition);
+
+        Assert.Contains(result.Errors, e => e.Code == "UNSUPPORTED_ASSIGNMENT_TYPE");
+    }
+
+    [Fact]
+    public void Validate_ApprovalTaskProcessInitiatorAssignment_DoesNotRequireValue()
+    {
+        var definition = ValidApprovalDefinition() with
+        {
+            Nodes = new[]
+            {
+                new WorkflowNodeDefinition("start", WorkflowNodeType.Start, "Start"),
+                new WorkflowNodeDefinition("approval", WorkflowNodeType.ApprovalTask, "Approval", Approval: new ApprovalConfig(
+                    ApprovalPolicy.AnyOne,
+                    new[] { new WorkflowAssignment(WorkflowAssignmentType.ProcessInitiator, "") })),
+                new WorkflowNodeDefinition("end", WorkflowNodeType.End, "End"),
+            },
+        };
+
+        var result = WorkflowDefinitionValidator.Validate(definition);
+
+        Assert.True(result.IsValid);
     }
 }

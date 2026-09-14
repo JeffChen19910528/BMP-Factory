@@ -38,4 +38,28 @@ public class TasksController : ControllerBase
         var userId = _currentUser.UserId!.Value;
         return Ok(await _workflowEngine.CompleteTaskAsync(id, userId, _currentUser.Roles, cancellationToken));
     }
+
+    [HttpPost("{id:guid}/approve")]
+    public async Task<ActionResult<TaskDto>> Approve(Guid id, CancellationToken cancellationToken) =>
+        Ok(await _workflowEngine.ApproveTaskAsync(id, _currentUser.UserId!.Value, _currentUser.Roles, cancellationToken));
+
+    [HttpPost("{id:guid}/reject")]
+    public async Task<ActionResult<TaskDto>> Reject(Guid id, CancellationToken cancellationToken) =>
+        Ok(await _workflowEngine.RejectTaskAsync(id, _currentUser.UserId!.Value, _currentUser.Roles, cancellationToken));
+
+    [HttpPost("{id:guid}/return")]
+    public async Task<ActionResult<TaskDto>> Return(Guid id, CancellationToken cancellationToken) =>
+        Ok(await _workflowEngine.ReturnTaskAsync(id, _currentUser.UserId!.Value, _currentUser.Roles, cancellationToken));
+
+    [HttpPost("{id:guid}/delegate")]
+    public async Task<ActionResult<TaskDto>> Delegate(Guid id, DelegateTaskRequest request, CancellationToken cancellationToken) =>
+        Ok(await _workflowEngine.DelegateTaskAsync(id, _currentUser.UserId!.Value, request.DelegateToUserId, cancellationToken));
+
+    [HttpPost("{id:guid}/transfer")]
+    public async Task<ActionResult<TaskDto>> Transfer(Guid id, TransferTaskRequest request, CancellationToken cancellationToken) =>
+        Ok(await _workflowEngine.TransferTaskAsync(id, _currentUser.UserId!.Value, _currentUser.Roles, request.NewUserId, request.Reason, cancellationToken));
+
+    [HttpPost("{id:guid}/approvers")]
+    public async Task<ActionResult<TaskDto>> AddApprover(Guid id, AddApproverRequest request, CancellationToken cancellationToken) =>
+        Ok(await _workflowEngine.AddApproverAsync(id, _currentUser.UserId!.Value, _currentUser.Roles, request.UserId, cancellationToken));
 }

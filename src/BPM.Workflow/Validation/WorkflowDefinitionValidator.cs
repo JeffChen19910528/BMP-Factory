@@ -14,20 +14,46 @@ namespace BPM.Workflow.Validation;
 // describe branching the engine has no way to execute.
 public static class WorkflowDefinitionValidator
 {
-    // Node types the Phase 2 engine can actually execute. WorkflowNodeType has more members
-    // (reserved for later phases); using one of those today is rejected here rather than
-    // accepted and silently ignored at runtime.
+    // Node types the engine can actually execute. WorkflowNodeType has more members (reserved
+    // for later phases); using one of those today is rejected here rather than accepted and
+    // silently ignored at runtime.
     private static readonly HashSet<WorkflowNodeType> SupportedNodeTypes = new()
     {
         WorkflowNodeType.Start,
         WorkflowNodeType.End,
         WorkflowNodeType.UserTask,
+        WorkflowNodeType.ApprovalTask,
     };
 
-    private static readonly HashSet<WorkflowAssignmentType> SupportedAssignmentTypes = new()
+    // Assignment types a plain UserTask supports — unchanged from Phase 2 (TaskInstance has a
+    // single AssigneeId/AssigneeRole; it has no way to represent "any of these department
+    // members" the way ApprovalAssignment rows do for ApprovalTask). Widening this is possible
+    // later but isn't needed: multi-candidate assignment belongs on ApprovalTask.
+    private static readonly HashSet<WorkflowAssignmentType> SupportedUserTaskAssignmentTypes = new()
     {
         WorkflowAssignmentType.User,
         WorkflowAssignmentType.Role,
+    };
+
+    // Assignment types an ApprovalTask's assignment list entries support (Phase 3 §6: User/Role/
+    // Department/DepartmentManager/ProcessInitiator). Manager and Dynamic are explicitly deferred
+    // by §6.
+    private static readonly HashSet<WorkflowAssignmentType> SupportedApprovalAssignmentTypes = new()
+    {
+        WorkflowAssignmentType.User,
+        WorkflowAssignmentType.Role,
+        WorkflowAssignmentType.Department,
+        WorkflowAssignmentType.DepartmentManager,
+        WorkflowAssignmentType.ProcessInitiator,
+    };
+
+    // Assignment types whose Value is a Guid the engine resolves directly (a user id, or a
+    // department id) — validated eagerly so a malformed id fails at publish time, not mid-run.
+    private static readonly HashSet<WorkflowAssignmentType> GuidValuedAssignmentTypes = new()
+    {
+        WorkflowAssignmentType.User,
+        WorkflowAssignmentType.Department,
+        WorkflowAssignmentType.DepartmentManager,
     };
 
     public static WorkflowValidationResult Validate(WorkflowDefinition? definition)
@@ -121,18 +147,72 @@ public static class WorkflowDefinitionValidator
     {
         foreach (var node in definition.Nodes.Where(n => n.Type == WorkflowNodeType.UserTask))
         {
-            if (node.Assignment is null || string.IsNullOrWhiteSpace(node.Assignment.Value))
+            if (node.Assignment is null)
             {
                 result.AddError("MISSING_ASSIGNMENT", $"UserTask node '{node.Id}' must specify an assignment.");
             }
-            else if (!SupportedAssignmentTypes.Contains(node.Assignment.Type))
+            else
             {
-                result.AddError("UNSUPPORTED_ASSIGNMENT_TYPE", $"UserTask node '{node.Id}' uses assignment type '{node.Assignment.Type}', which is not yet supported.");
+                ValidateAssignment(node.Id, "UserTask", node.Assignment, SupportedUserTaskAssignmentTypes, result);
             }
-            else if (node.Assignment.Type == WorkflowAssignmentType.User && !Guid.TryParse(node.Assignment.Value, out _))
+
+            if (node.Approval is not null)
             {
-                result.AddError("INVALID_ASSIGNMENT_VALUE", $"UserTask node '{node.Id}' has assignment type 'User' but its value ('{node.Assignment.Value}') is not a valid user id.");
+                result.AddError("UNEXPECTED_APPROVAL_CONFIG", $"UserTask node '{node.Id}' must not specify an approval configuration; use an ApprovalTask node instead.");
             }
+        }
+
+        foreach (var node in definition.Nodes.Where(n => n.Type == WorkflowNodeType.ApprovalTask))
+        {
+            if (node.Assignment is not null)
+            {
+                result.AddError("UNEXPECTED_ASSIGNMENT", $"ApprovalTask node '{node.Id}' must not specify a plain assignment; use approval.assignments instead.");
+            }
+
+            if (node.Approval is null)
+            {
+                result.AddError("MISSING_APPROVAL_CONFIG", $"ApprovalTask node '{node.Id}' must specify an approval configuration.");
+                continue;
+            }
+
+            if (!Enum.IsDefined(node.Approval.Policy))
+            {
+                result.AddError("INVALID_APPROVAL_POLICY", $"ApprovalTask node '{node.Id}' has an invalid approval policy.");
+            }
+
+            if (node.Approval.Assignments.Count == 0)
+            {
+                result.AddError("EMPTY_APPROVAL_ASSIGNMENTS", $"ApprovalTask node '{node.Id}' must specify at least one approval assignment.");
+            }
+            else
+            {
+                foreach (var assignment in node.Approval.Assignments)
+                {
+                    ValidateAssignment(node.Id, "ApprovalTask", assignment, SupportedApprovalAssignmentTypes, result);
+                }
+            }
+        }
+    }
+
+    private static void ValidateAssignment(string nodeId, string nodeKind, WorkflowAssignment assignment, HashSet<WorkflowAssignmentType> supportedTypes, WorkflowValidationResult result)
+    {
+        // ProcessInitiator needs no configured value — it always resolves to the running
+        // instance's initiator — so an empty Value is fine only for that type.
+        if (assignment.Type != WorkflowAssignmentType.ProcessInitiator && string.IsNullOrWhiteSpace(assignment.Value))
+        {
+            result.AddError("MISSING_ASSIGNMENT", $"{nodeKind} node '{nodeId}' assignment of type '{assignment.Type}' must specify a value.");
+            return;
+        }
+
+        if (!supportedTypes.Contains(assignment.Type))
+        {
+            result.AddError("UNSUPPORTED_ASSIGNMENT_TYPE", $"{nodeKind} node '{nodeId}' uses assignment type '{assignment.Type}', which is not yet supported.");
+            return;
+        }
+
+        if (GuidValuedAssignmentTypes.Contains(assignment.Type) && !Guid.TryParse(assignment.Value, out _))
+        {
+            result.AddError("INVALID_ASSIGNMENT_VALUE", $"{nodeKind} node '{nodeId}' has assignment type '{assignment.Type}' but its value ('{assignment.Value}') is not a valid id.");
         }
     }
 
