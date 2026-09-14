@@ -1,24 +1,12 @@
-using System.Text;
 using System.Text.Json.Serialization;
 using BPM.Api;
-using BPM.Application.Audit;
-using BPM.Application.Auth;
-using BPM.Application.Common;
-using BPM.Application.Departments;
-using BPM.Application.Organizations;
-using BPM.Application.Processes;
-using BPM.Application.Roles;
-using BPM.Application.Users;
-using BPM.Application.Workflow;
 using BPM.Domain.Entities;
 using BPM.Identity;
+using BPM.Infrastructure;
 using BPM.Infrastructure.Persistence;
 using BPM.Infrastructure.Services;
-using FluentValidation;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+using BPM.Workflow;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using Serilog;
 
@@ -50,54 +38,12 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-builder.Services.AddDbContext<BpmDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
-
-builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSettings.SectionName));
-var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
-    ?? throw new InvalidOperationException("Jwt configuration section is missing.");
-
+// Each layer owns its own DI registration — Program.cs (the composition root) only needs to
+// know these three entry points, not every concrete service type each layer provides.
 builder.Services
-    .AddAuthentication(options =>
-    {
-        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-    })
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = jwtSettings.Issuer,
-            ValidAudience = jwtSettings.Audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.Secret)),
-        };
-    });
-builder.Services.AddAuthorization();
-
-builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
-builder.Services.AddScoped<IAuditService, AuditService>();
-builder.Services.AddScoped<IAuditLogQueryService, AuditLogQueryService>();
-builder.Services.AddScoped<IUserService, UserService>();
-builder.Services.AddScoped<IOrganizationService, OrganizationService>();
-builder.Services.AddScoped<IDepartmentService, DepartmentService>();
-builder.Services.AddScoped<IRoleService, RoleService>();
-builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
-builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
-
-builder.Services.AddScoped<IProcessDefinitionService, ProcessDefinitionService>();
-builder.Services.AddScoped<IProcessInstanceQueryService, ProcessInstanceQueryService>();
-builder.Services.AddScoped<ITaskQueryService, TaskQueryService>();
-builder.Services.AddScoped<IWorkflowEngine, BPM.Workflow.Engine.WorkflowEngine>();
-builder.Services.AddValidatorsFromAssemblyContaining<CreateProcessDefinitionRequestValidator>();
-
-builder.Services.AddHealthChecks()
-    .AddNpgSql(builder.Configuration.GetConnectionString("Default")!, name: "postgres");
+    .AddInfrastructure(builder.Configuration)
+    .AddIdentityServices(builder.Configuration)
+    .AddWorkflowEngine();
 
 var app = builder.Build();
 

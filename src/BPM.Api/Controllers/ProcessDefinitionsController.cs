@@ -52,9 +52,6 @@ public class ProcessDefinitionsController : ControllerBase
 
     [HttpPost("{id:guid}/publish")]
     [Authorize(Roles = "Administrator")]
-    public async Task<ActionResult<ProcessVersionDto>> Publish(Guid id, CancellationToken cancellationToken)
-    {
-        var publishedBy = _currentUser.UserId!.Value;
-        return Ok(await _workflowEngine.PublishVersionAsync(id, publishedBy, cancellationToken));
-    }
+    public async Task<ActionResult<ProcessVersionDto>> Publish(Guid id, CancellationToken cancellationToken) =>
+        Ok(await _workflowEngine.PublishVersionAsync(id, _currentUser.RequireUserId(), cancellationToken));
 }

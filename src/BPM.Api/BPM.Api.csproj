@@ -7,8 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
+    <!-- Health checks (AspNetCore.HealthChecks.NpgSql) and JWT bearer auth
+         (Microsoft.AspNetCore.Authentication.JwtBearer) are referenced by BPM.Infrastructure and
+         BPM.Identity respectively, which is where that DI registration now lives — they flow
+         here transitively. -->
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

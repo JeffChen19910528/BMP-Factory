@@ -35,8 +35,7 @@ public class ProcessInstancesController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<ProcessInstanceDto>> Start(StartProcessRequest request, CancellationToken cancellationToken)
     {
-        var initiatorId = _currentUser.UserId!.Value;
-        var instance = await _workflowEngine.StartProcessAsync(request, initiatorId, cancellationToken);
+        var instance = await _workflowEngine.StartProcessAsync(request, _currentUser.RequireUserId(), cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id = instance.Id }, instance);
     }
 }

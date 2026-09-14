@@ -23,7 +23,7 @@ public class TasksController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<TaskDto>>> GetMyTasks(CancellationToken cancellationToken) =>
-        Ok(await _queryService.GetMyTasksAsync(_currentUser.UserId!.Value, _currentUser.Roles, cancellationToken));
+        Ok(await _queryService.GetMyTasksAsync(_currentUser.RequireUserId(), _currentUser.Roles, cancellationToken));
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<TaskDto>> GetById(Guid id, CancellationToken cancellationToken)
@@ -33,33 +33,30 @@ public class TasksController : ControllerBase
     }
 
     [HttpPost("{id:guid}/complete")]
-    public async Task<ActionResult<TaskDto>> Complete(Guid id, CancellationToken cancellationToken)
-    {
-        var userId = _currentUser.UserId!.Value;
-        return Ok(await _workflowEngine.CompleteTaskAsync(id, userId, _currentUser.Roles, cancellationToken));
-    }
+    public async Task<ActionResult<TaskDto>> Complete(Guid id, CancellationToken cancellationToken) =>
+        Ok(await _workflowEngine.CompleteTaskAsync(id, _currentUser.RequireUserId(), _currentUser.Roles, cancellationToken));
 
     [HttpPost("{id:guid}/approve")]
     public async Task<ActionResult<TaskDto>> Approve(Guid id, CancellationToken cancellationToken) =>
-        Ok(await _workflowEngine.ApproveTaskAsync(id, _currentUser.UserId!.Value, _currentUser.Roles, cancellationToken));
+        Ok(await _workflowEngine.ApproveTaskAsync(id, _currentUser.RequireUserId(), _currentUser.Roles, cancellationToken));
 
     [HttpPost("{id:guid}/reject")]
     public async Task<ActionResult<TaskDto>> Reject(Guid id, CancellationToken cancellationToken) =>
-        Ok(await _workflowEngine.RejectTaskAsync(id, _currentUser.UserId!.Value, _currentUser.Roles, cancellationToken));
+        Ok(await _workflowEngine.RejectTaskAsync(id, _currentUser.RequireUserId(), _currentUser.Roles, cancellationToken));
 
     [HttpPost("{id:guid}/return")]
     public async Task<ActionResult<TaskDto>> Return(Guid id, CancellationToken cancellationToken) =>
-        Ok(await _workflowEngine.ReturnTaskAsync(id, _currentUser.UserId!.Value, _currentUser.Roles, cancellationToken));
+        Ok(await _workflowEngine.ReturnTaskAsync(id, _currentUser.RequireUserId(), _currentUser.Roles, cancellationToken));
 
     [HttpPost("{id:guid}/delegate")]
     public async Task<ActionResult<TaskDto>> Delegate(Guid id, DelegateTaskRequest request, CancellationToken cancellationToken) =>
-        Ok(await _workflowEngine.DelegateTaskAsync(id, _currentUser.UserId!.Value, request.DelegateToUserId, cancellationToken));
+        Ok(await _workflowEngine.DelegateTaskAsync(id, _currentUser.RequireUserId(), request.DelegateToUserId, cancellationToken));
 
     [HttpPost("{id:guid}/transfer")]
     public async Task<ActionResult<TaskDto>> Transfer(Guid id, TransferTaskRequest request, CancellationToken cancellationToken) =>
-        Ok(await _workflowEngine.TransferTaskAsync(id, _currentUser.UserId!.Value, _currentUser.Roles, request.NewUserId, request.Reason, cancellationToken));
+        Ok(await _workflowEngine.TransferTaskAsync(id, _currentUser.RequireUserId(), _currentUser.Roles, request.NewUserId, request.Reason, cancellationToken));
 
     [HttpPost("{id:guid}/approvers")]
     public async Task<ActionResult<TaskDto>> AddApprover(Guid id, AddApproverRequest request, CancellationToken cancellationToken) =>
-        Ok(await _workflowEngine.AddApproverAsync(id, _currentUser.UserId!.Value, _currentUser.Roles, request.UserId, cancellationToken));
+        Ok(await _workflowEngine.AddApproverAsync(id, _currentUser.RequireUserId(), _currentUser.Roles, request.UserId, cancellationToken));
 }
