@@ -21,14 +21,29 @@ public class TasksController : ControllerBase
         _currentUser = currentUser;
     }
 
+    // Phase 12 — now genuinely paginated (see MyTasksQuery's own doc comment); the response shape
+    // changed from a bare array to the same PagedResult<T> envelope every other paginated list in
+    // this codebase already uses (e.g. GetApprovalWorklist below). [FromQuery] Page/PageSize are
+    // both optional — an unparameterized GET /api/tasks keeps working, now returning up to 200
+    // tasks (MyTasksQuery's default) instead of an unbounded number.
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<TaskDto>>> GetMyTasks(CancellationToken cancellationToken) =>
-        Ok(await _queryService.GetMyTasksAsync(_currentUser.RequireUserId(), _currentUser.Roles, cancellationToken));
+    public async Task<ActionResult<PagedResult<TaskDto>>> GetMyTasks([FromQuery] MyTasksQuery query, CancellationToken cancellationToken) =>
+        Ok(await _queryService.GetMyTasksAsync(_currentUser.RequireUserId(), _currentUser.Roles, query, cancellationToken));
+
+    // Phase 5.5.1 — Approvals Worklist: a dedicated, paginated/filterable/searchable view over
+    // exactly the approval tasks the caller participates in. "approvals" as a literal segment
+    // never collides with the `{id:guid}` route below — ASP.NET Core's guid route constraint
+    // simply doesn't match a non-guid literal. currentUserId always comes from the authenticated
+    // caller (ICurrentUserService), never from a query parameter — a client cannot ask for
+    // another user's worklist by passing a different id anywhere in this request.
+    [HttpGet("approvals")]
+    public async Task<ActionResult<PagedResult<ApprovalWorklistItemDto>>> GetApprovalWorklist([FromQuery] ApprovalWorklistQuery query, CancellationToken cancellationToken) =>
+        Ok(await _queryService.GetApprovalWorklistAsync(_currentUser.RequireUserId(), _currentUser.Roles, query, cancellationToken));
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<TaskDto>> GetById(Guid id, CancellationToken cancellationToken)
     {
-        var task = await _queryService.GetByIdAsync(id, cancellationToken);
+        var task = await _queryService.GetByIdAsync(id, _currentUser.RequireUserId(), _currentUser.Roles, cancellationToken);
         return task is null ? NotFound() : Ok(task);
     }
 

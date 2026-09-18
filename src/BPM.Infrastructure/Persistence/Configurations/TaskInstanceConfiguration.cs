@@ -19,5 +19,11 @@ public class TaskInstanceConfiguration : IEntityTypeConfiguration<TaskInstance>
         builder.HasIndex(t => t.AssigneeId);
         builder.HasIndex(t => t.Status);
         builder.HasIndex(t => t.DueAt);
+        // Phase 12 — GetMyTasksAsync now does ORDER BY CreatedAt DESC over a potentially large,
+        // multi-source (assignee + approval-participant) id set before paginating; confirmed via
+        // inspection no existing index (AssigneeId/Status/DueAt above) covers CreatedAt, and a
+        // single-column index matches this file's own existing pattern rather than a speculative
+        // composite one.
+        builder.HasIndex(t => t.CreatedAt);
     }
 }

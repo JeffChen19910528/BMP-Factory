@@ -65,4 +65,8 @@ public record FormFieldDefinition(
 // Deserialized form of FormVersion.SchemaJson (Skill.md §6). Lives in BPM.Domain (not
 // BPM.Workflow), same rationale as BPM.Domain.Workflow.WorkflowDefinition: a dependency-free,
 // framework-agnostic shape that both the validator and the engine need to share.
-public record FormSchema(IReadOnlyList<FormFieldDefinition> Fields);
+// Rules (Phase 5.4.2) is nullable/optional and defaults to null so every FormSchema created before
+// this phase — and every existing test constructing one positionally/with-fields-only — keeps
+// deserializing and round-tripping identically; a schema with no `rules` property at all is
+// exactly equivalent to one with an empty list.
+public record FormSchema(IReadOnlyList<FormFieldDefinition> Fields, IReadOnlyList<FormRule>? Rules = null);

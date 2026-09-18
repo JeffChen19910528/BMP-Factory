@@ -33,6 +33,18 @@ services:
       - "9001:9001"
     volumes:
       - minio_data:/data
+    # Phase 10 — MinIO's own official liveness endpoint (confirmed reachable via curl, which this
+    # image bundles). Without this, bpm-api had no compose-level guarantee MinIO was actually
+    # ready before it started accepting attachment-upload traffic — the application itself
+    # already tolerates MinIO being briefly unavailable (MinioAttachmentStorage.EnsureBucketAsync
+    # connects lazily, and Phase 10's AttachmentService hardening now maps any storage failure to
+    # a clean error rather than a raw exception), so this closes the startup race, not a
+    # correctness gap in the app.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   bpm-api:
     build:
@@ -48,10 +60,34 @@ services:
       Minio__AccessKey: "bpm"
       Minio__SecretKey: "bpm12345"
       Minio__BucketName: "bpm-attachments"
+      # Phase 6.2: this stack has no real mail server, so Provider stays "Fake" here — a real
+      # deployment sets Provider=Smtp plus real Host/Username/Password (never committed; see
+      # EmailSettings' own doc comment). Enabled=true + short PollIntervalSeconds/RetryBackoffSeconds
+      # so this dev/test stack's own live acceptance test doesn't wait through production-scale
+      # retry delays.
+      Email__Enabled: "true"
+      Email__Provider: "Fake"
+      Email__PollIntervalSeconds: "2"
+      Email__RetryBackoffSeconds: "3"
+      Email__MaxAttempts: "3"
+      # Phase 6.4: short PollIntervalSeconds so this dev/test stack's own SLA scheduler live
+      # acceptance test doesn't wait through a production-scale (1-minute default) poll interval —
+      # same reasoning as Email__PollIntervalSeconds above. A real deployment leaves this unset
+      # (defaults to Enabled=true, PollIntervalSeconds=60 — see SlaSchedulerSettings).
+      SlaScheduler__Enabled: "true"
+      SlaScheduler__PollIntervalSeconds: "5"
     ports:
       - "5080:8080"
+    volumes:
+      # Phase 10 — durable Serilog file logging (see appsettings.json's Serilog:WriteTo). Console
+      # logging is preserved unchanged; this just gives the rolling daily log files (14-day
+      # retention, 50MB/file cap — see appsettings.json) somewhere that survives a container
+      # recreate, the same way postgres_data/minio_data already do for their own data.
+      - api_logs:/app/logs
     depends_on:
       postgres:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   bpm-web:
@@ -68,3 +104,4 @@ services:
 volumes:
   postgres_data:
   minio_data:
+  api_logs:

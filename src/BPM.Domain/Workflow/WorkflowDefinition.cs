@@ -62,11 +62,31 @@ public record ApprovalConfig(
     bool AllowAddApprover = true,
     ReturnPolicy? ReturnPolicy = null);
 
-// Optional form binding for a UserTask node (Skill.md Phase 4 §19). Only a key, never a version —
-// the engine always resolves the form's *currently published* version at the moment the task (and
-// its FormInstance) is created, then pins that FormInstance to it forever after, the same way
-// StartProcessAsync pins a ProcessInstance to the definition's currently published ProcessVersion.
-public record FormReference(string FormDefinitionKey);
+// Optional form binding for a UserTask node (Skill.md Phase 4 §19). Authored by key only — the
+// Designer never picks a specific FormVersion, matching how a workflow author never picks a
+// specific ProcessVersion either.
+//
+// Phase 10 — FormVersionId (nullable) is snapshotted server-side by WorkflowEngine.PublishVersionAsync
+// at the moment a ProcessVersion is published: whichever FormVersion is currently published for
+// FormDefinitionKey at that instant is written into this field and the graph is re-serialized
+// before the ProcessVersion's own DefinitionJson is frozen. From then on every task created for
+// this node, for the life of this ProcessVersion — across every ProcessInstance that ever runs on
+// it, and every re-entry via Return — resolves that exact FormVersion, never a live lookup of
+// FormDefinition.CurrentVersionId. This is what makes Form pinning as deterministic as Workflow's
+// own ProcessVersion pinning, closing the one real historical-consistency gap Phase 10's own
+// Architecture Discovery found (a node's form could previously change out from under an
+// already-published, supposedly-immutable ProcessVersion if the form was simply republished).
+//
+// A GUID embedded inside DefinitionJson is not a new pattern here — WorkflowAssignment.Value
+// already stores a raw User/Department GUID string for those assignment types; this follows the
+// same precedent rather than introducing a new database column.
+//
+// FormVersionId is null on every Draft version (resolution is a publish-time concern, invisible
+// to Designer authoring) and stays null forever on any ProcessVersion published before this
+// field existed — FormEngine treats null as "no pin recorded" and falls back to its original,
+// pre-Phase-10 live-lookup behavior for those older rows, so no historical ProcessVersion's
+// actual runtime behavior is retroactively changed by this field's mere existence.
+public record FormReference(string FormDefinitionKey, Guid? FormVersionId = null);
 
 public record WorkflowNodeDefinition(
     string Id,

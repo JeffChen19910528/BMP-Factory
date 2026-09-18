@@ -1,4 +1,5 @@
 using BPM.Application.Audit;
+using BPM.Application.Common;
 using BPM.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,7 +14,7 @@ public class AuditLogQueryService : IAuditLogQueryService
         _db = db;
     }
 
-    public async Task<IReadOnlyList<AuditLogDto>> QueryAsync(AuditLogQuery query, CancellationToken cancellationToken = default)
+    public async Task<PagedResult<AuditLogDto>> QueryAsync(AuditLogQuery query, CancellationToken cancellationToken = default)
     {
         var q = _db.AuditLogs.AsNoTracking().AsQueryable();
 
@@ -41,11 +42,22 @@ public class AuditLogQueryService : IAuditLogQueryService
         var page = query.Page < 1 ? 1 : query.Page;
         var pageSize = query.PageSize is < 1 or > 200 ? 50 : query.PageSize;
 
-        return await q
+        // Phase 12 — same overflow guard Phase 7.2.3 already established in
+        // ProcessMonitoringQueryService: plain `int` arithmetic on (page - 1) * pageSize can
+        // overflow at an extreme Page value and wrap to a negative Skip() argument, which
+        // PostgreSQL rejects with a raw, unmapped exception. Computing in `long` and clamping to
+        // int.MaxValue keeps normal pagination completely unchanged — a page that far out simply
+        // yields zero rows, the correct behavior for an out-of-range page.
+        var skip = (int)Math.Min((long)(page - 1) * pageSize, int.MaxValue);
+
+        var totalCount = await q.CountAsync(cancellationToken);
+        var items = await q
             .OrderByDescending(a => a.Timestamp)
-            .Skip((page - 1) * pageSize)
+            .Skip(skip)
             .Take(pageSize)
             .Select(a => new AuditLogDto(a.Id, a.UserId, a.Action, a.EntityType, a.EntityId, a.OldValue, a.NewValue, a.Timestamp))
             .ToListAsync(cancellationToken);
+
+        return new PagedResult<AuditLogDto>(items, totalCount, page, pageSize);
     }
 }

@@ -8,6 +8,24 @@ public static class AuditActions
     public const string CreateProcess = "CreateProcess";
     public const string ModifyProcess = "ModifyProcess";
     public const string PublishProcess = "PublishProcess";
+
+    // Phase 8 — Process Governance & Lifecycle.
+    public const string SuspendProcess = "SuspendProcess";
+    public const string ArchiveProcess = "ArchiveProcess";
+    public const string RestoreProcess = "RestoreProcess";
+    public const string ChangeProcessOwner = "ChangeProcessOwner";
+
+    // Phase 9 — System Administration & Configuration.
+    public const string CreateOrganization = "CreateOrganization";
+    public const string ModifyOrganization = "ModifyOrganization";
+    public const string CreateRole = "CreateRole";
+    public const string ModifyRole = "ModifyRole";
+    public const string CreateUser = "CreateUser";
+    public const string CreateDepartment = "CreateDepartment";
+    public const string CreateSlaPolicy = "CreateSlaPolicy";
+    public const string UpdateSlaPolicy = "UpdateSlaPolicy";
+    public const string ResetPassword = "ResetPassword";
+    public const string ChangePassword = "ChangePassword";
     public const string StartProcess = "StartProcess";
     public const string AssignTask = "AssignTask";
     public const string Approve = "Approve";
@@ -39,7 +57,9 @@ public static class AuditActions
 
     // Form engine events (Phase 4, Skill.md §25).
     public const string FormCreated = "FormCreated";
+    public const string FormModified = "FormModified";
     public const string FormVersionCreated = "FormVersionCreated";
+    public const string FormVersionUpdated = "FormVersionUpdated";
     public const string FormVersionPublished = "FormVersionPublished";
     public const string FormInstanceCreated = "FormInstanceCreated";
     public const string FormDataUpdated = "FormDataUpdated";

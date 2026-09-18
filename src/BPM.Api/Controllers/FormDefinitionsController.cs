@@ -1,5 +1,6 @@
 using BPM.Application.Common;
 using BPM.Application.Forms;
+using BPM.Application.Workflow;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -40,6 +41,11 @@ public class FormDefinitionsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = definition.Id }, definition);
     }
 
+    [HttpPut("{id:guid}")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<ActionResult<FormDefinitionDto>> Update(Guid id, UpdateFormDefinitionRequest request, CancellationToken cancellationToken) =>
+        Ok(await _formDefinitionService.UpdateAsync(id, request, cancellationToken));
+
     [HttpGet("{id:guid}/versions")]
     public async Task<ActionResult<IReadOnlyList<FormVersionDto>>> GetVersions(Guid id, CancellationToken cancellationToken) =>
         Ok(await _formDefinitionService.GetVersionsAsync(id, cancellationToken));
@@ -49,8 +55,22 @@ public class FormDefinitionsController : ControllerBase
     public async Task<ActionResult<FormVersionDto>> CreateVersion(Guid id, CreateFormVersionRequest request, CancellationToken cancellationToken) =>
         Ok(await _formDefinitionService.CreateVersionAsync(id, request, cancellationToken));
 
+    [HttpPut("{id:guid}/versions/{versionId:guid}")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<ActionResult<FormVersionDto>> UpdateVersion(Guid id, Guid versionId, UpdateFormVersionRequest request, CancellationToken cancellationToken) =>
+        Ok(await _formDefinitionService.UpdateVersionAsync(id, versionId, request, cancellationToken));
+
     [HttpPost("{id:guid}/publish")]
     [Authorize(Roles = "Administrator")]
     public async Task<ActionResult<FormVersionDto>> Publish(Guid id, CancellationToken cancellationToken) =>
         Ok(await _formEngine.PublishVersionAsync(id, _currentUser.RequireUserId(), cancellationToken));
+
+    // Stateless preview validation for the Form Designer's [Validate] action (mirrors
+    // ProcessDefinitionsController's POST .../validate exactly) — never persists or publishes
+    // anything. Always 200: "invalid" is a normal validation outcome to render, not a request
+    // failure.
+    [HttpPost("validate")]
+    [Authorize(Roles = "Administrator")]
+    public ActionResult<WorkflowValidationResultDto> Validate(ValidateFormSchemaRequest request) =>
+        Ok(_formEngine.ValidateSchema(request.Schema));
 }

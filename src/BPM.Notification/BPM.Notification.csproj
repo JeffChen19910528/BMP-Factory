@@ -3,6 +3,9 @@
   <ItemGroup>
     <ProjectReference Include="..\BPM.Domain\BPM.Domain.csproj" />
     <ProjectReference Include="..\BPM.Application\BPM.Application.csproj" />
+    <!-- Phase 6.2: the delivery processor needs BpmDbContext to claim/update NotificationDelivery
+         rows — the same reason BPM.Workflow already references BPM.Infrastructure. -->
+    <ProjectReference Include="..\BPM.Infrastructure\BPM.Infrastructure.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

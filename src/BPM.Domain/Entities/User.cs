@@ -11,6 +11,10 @@ public class User : AuditableEntity
     public Department? Department { get; set; }
     public bool IsActive { get; set; } = true;
 
+    // Phase 9 — set once per successful login (AuthService.LoginAsync), never elsewhere. NULL for
+    // every existing user until their next login; never backfilled from AuditLog history.
+    public DateTime? LastLoginAt { get; set; }
+
     // Manager for AssignmentType.Manager resolution (Skill.md §10).
     public Guid? ManagerUserId { get; set; }
 

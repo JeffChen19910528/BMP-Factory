@@ -23,12 +23,12 @@ public class ProcessInstancesController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<ProcessInstanceDto>>> GetAll(CancellationToken cancellationToken) =>
-        Ok(await _queryService.GetAllAsync(cancellationToken));
+        Ok(await _queryService.GetAllAsync(_currentUser.RequireUserId(), _currentUser.Roles, cancellationToken));
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ProcessInstanceDto>> GetById(Guid id, CancellationToken cancellationToken)
     {
-        var instance = await _queryService.GetByIdAsync(id, cancellationToken);
+        var instance = await _queryService.GetByIdAsync(id, _currentUser.RequireUserId(), _currentUser.Roles, cancellationToken);
         return instance is null ? NotFound() : Ok(instance);
     }
 

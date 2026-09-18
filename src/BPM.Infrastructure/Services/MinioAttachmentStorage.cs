@@ -57,6 +57,21 @@ public class MinioAttachmentStorage : IAttachmentStorage
             .WithObject(storageKey), cancellationToken);
     }
 
+    // Phase 9 — Operational Health. A cheap connectivity probe (does the configured bucket exist)
+    // — never throws, since this is read by an Administrator diagnostic view that must render a
+    // clear "unhealthy" state, not a 500, when the object store happens to be unreachable.
+    public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _client.BucketExistsAsync(new BucketExistsArgs().WithBucket(_bucketName), cancellationToken);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private async Task EnsureBucketAsync(CancellationToken cancellationToken)
     {
         if (_bucketEnsured)

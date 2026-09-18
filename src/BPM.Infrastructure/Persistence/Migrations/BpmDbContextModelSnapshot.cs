@@ -310,6 +310,64 @@ namespace BPM.Infrastructure.Persistence.Migrations
                     b.ToTable("Departments", (string)null);
                 });
 
+            modelBuilder.Entity("BPM.Domain.Entities.EscalationPolicy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("DelayMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("NodeId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("ProcessDefinitionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("TargetType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("TargetValue")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProcessDefinitionId", "NodeId")
+                        .IsUnique();
+
+                    b.ToTable("EscalationPolicies", (string)null);
+                });
+
             modelBuilder.Entity("BPM.Domain.Entities.FormData", b =>
                 {
                     b.Property<Guid>("Id")
@@ -530,6 +588,118 @@ namespace BPM.Infrastructure.Persistence.Migrations
                     b.ToTable("FormVersions", (string)null);
                 });
 
+            modelBuilder.Entity("BPM.Domain.Entities.Notification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RecipientUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RelatedEntityId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("RelatedEntityType")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("RecipientUserId");
+
+                    b.HasIndex("RecipientUserId", "IsRead");
+
+                    b.ToTable("Notifications", (string)null);
+                });
+
+            modelBuilder.Entity("BPM.Domain.Entities.NotificationDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("NotificationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RecipientAddress")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NotificationId");
+
+                    b.HasIndex("Channel", "Status");
+
+                    b.HasIndex("Status", "NextAttemptAt");
+
+                    b.ToTable("NotificationDeliveries", (string)null);
+                });
+
             modelBuilder.Entity("BPM.Domain.Entities.Organization", b =>
                 {
                     b.Property<Guid>("Id")
@@ -603,6 +773,9 @@ namespace BPM.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<Guid?>("OwnerUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .IsRequired()
@@ -623,6 +796,8 @@ namespace BPM.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("OwnerUserId");
 
                     b.HasIndex("TenantId", "Key")
                         .IsUnique();
@@ -690,6 +865,9 @@ namespace BPM.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("Status");
 
+                    b.HasIndex("TenantId", "ProcessDefinitionId", "BusinessKey")
+                        .IsUnique();
+
                     b.ToTable("ProcessInstances", (string)null);
                 });
 
@@ -698,6 +876,10 @@ namespace BPM.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ChangeReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -787,6 +969,57 @@ namespace BPM.Infrastructure.Persistence.Migrations
                     b.ToTable("Roles", (string)null);
                 });
 
+            modelBuilder.Entity("BPM.Domain.Entities.SlaPolicy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("DurationMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("NodeId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("ProcessDefinitionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("WarningOffsetMinutes")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProcessDefinitionId", "NodeId")
+                        .IsUnique();
+
+                    b.ToTable("SlaPolicies", (string)null);
+                });
+
             modelBuilder.Entity("BPM.Domain.Entities.TaskInstance", b =>
                 {
                     b.Property<Guid>("Id")
@@ -851,6 +1084,8 @@ namespace BPM.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("AssigneeId");
 
+                    b.HasIndex("CreatedAt");
+
                     b.HasIndex("DueAt");
 
                     b.HasIndex("ProcessInstanceId");
@@ -858,6 +1093,64 @@ namespace BPM.Infrastructure.Persistence.Migrations
                     b.HasIndex("Status");
 
                     b.ToTable("TaskInstances", (string)null);
+                });
+
+            modelBuilder.Entity("BPM.Domain.Entities.TaskSla", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("DueAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("EscalatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("EscalationAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("OverdueAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("PolicyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("TaskInstanceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("WarningAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("WarningNotifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PolicyId");
+
+                    b.HasIndex("TaskInstanceId")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "DueAt");
+
+                    b.HasIndex("Status", "WarningAt");
+
+                    b.ToTable("TaskSlas", (string)null);
                 });
 
             modelBuilder.Entity("BPM.Domain.Entities.User", b =>
@@ -887,6 +1180,9 @@ namespace BPM.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastLoginAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("ManagerUserId")
                         .HasColumnType("uuid");
@@ -996,6 +1292,17 @@ namespace BPM.Infrastructure.Persistence.Migrations
                     b.Navigation("Parent");
                 });
 
+            modelBuilder.Entity("BPM.Domain.Entities.EscalationPolicy", b =>
+                {
+                    b.HasOne("BPM.Domain.Entities.ProcessDefinition", "ProcessDefinition")
+                        .WithMany()
+                        .HasForeignKey("ProcessDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ProcessDefinition");
+                });
+
             modelBuilder.Entity("BPM.Domain.Entities.FormData", b =>
                 {
                     b.HasOne("BPM.Domain.Entities.FormInstance", "FormInstance")
@@ -1054,6 +1361,14 @@ namespace BPM.Infrastructure.Persistence.Migrations
                     b.Navigation("Parent");
                 });
 
+            modelBuilder.Entity("BPM.Domain.Entities.ProcessDefinition", b =>
+                {
+                    b.HasOne("BPM.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("BPM.Domain.Entities.ProcessInstance", b =>
                 {
                     b.HasOne("BPM.Domain.Entities.ProcessDefinition", "ProcessDefinition")
@@ -1079,6 +1394,17 @@ namespace BPM.Infrastructure.Persistence.Migrations
                         .WithMany("Versions")
                         .HasForeignKey("ProcessDefinitionId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ProcessDefinition");
+                });
+
+            modelBuilder.Entity("BPM.Domain.Entities.SlaPolicy", b =>
+                {
+                    b.HasOne("BPM.Domain.Entities.ProcessDefinition", "ProcessDefinition")
+                        .WithMany()
+                        .HasForeignKey("ProcessDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("ProcessDefinition");

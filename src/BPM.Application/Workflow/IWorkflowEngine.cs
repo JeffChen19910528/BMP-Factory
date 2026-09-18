@@ -1,4 +1,5 @@
 using BPM.Application.Processes;
+using BPM.Domain.Workflow;
 
 namespace BPM.Application.Workflow;
 
@@ -10,8 +11,11 @@ public interface IWorkflowEngine
 {
     // Validates and publishes the definition's latest Draft version. Throws NotFoundAppException
     // if the definition or a draft version doesn't exist, ValidationAppException if the
-    // definition graph fails validation (Skill.md §12, §30).
-    Task<ProcessVersionDto> PublishVersionAsync(Guid processDefinitionId, Guid publishedBy, CancellationToken cancellationToken = default);
+    // definition graph fails validation (Skill.md §12, §30). changeReason (Phase 8) is an
+    // optional governance note persisted on the now-Published ProcessVersion — never editable
+    // afterward, same immutability as the version itself; BadRequestAppException if it exceeds
+    // the column's maximum length.
+    Task<ProcessVersionDto> PublishVersionAsync(Guid processDefinitionId, Guid publishedBy, string? changeReason = null, CancellationToken cancellationToken = default);
 
     // Throws NotFoundAppException if no Published version exists for the given key
     // (Skill.md §13: "A process must NOT start from a Draft version").
@@ -56,4 +60,12 @@ public interface IWorkflowEngine
     // here as a least-privilege default — see ApprovalEngine's doc comment): adds a new
     // ApprovalAssignment to a still-Pending ApprovalInstance without touching the ProcessVersion.
     Task<TaskDto> AddApproverAsync(Guid taskId, Guid currentUserId, IReadOnlyCollection<string> currentUserRoles, Guid newApproverUserId, CancellationToken cancellationToken = default);
+
+    // Phase 5.2's JSON Definition Editor "Validate" action (frontend spec §10): runs the same
+    // pure, DB-free WorkflowDefinitionValidator that PublishVersionAsync uses, without persisting
+    // or publishing anything — lets the frontend preview validation errors while still editing a
+    // draft. Synchronous and side-effect-free by design; deliberately does NOT include the
+    // DB-backed form-reference check PublishVersionAsync does (that needs the FormDefinitions
+    // table, which would make this no longer pure) — Publish remains the authoritative final gate.
+    WorkflowValidationResultDto ValidateDefinition(WorkflowDefinition definition);
 }

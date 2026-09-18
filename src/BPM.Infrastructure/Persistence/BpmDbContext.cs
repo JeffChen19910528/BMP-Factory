@@ -16,6 +16,8 @@ public class BpmDbContext : DbContext
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<NotificationDelivery> NotificationDeliveries => Set<NotificationDelivery>();
 
     public DbSet<ProcessDefinition> ProcessDefinitions => Set<ProcessDefinition>();
     public DbSet<ProcessVersion> ProcessVersions => Set<ProcessVersion>();
@@ -23,6 +25,9 @@ public class BpmDbContext : DbContext
     public DbSet<TaskInstance> TaskInstances => Set<TaskInstance>();
     public DbSet<ApprovalInstance> ApprovalInstances => Set<ApprovalInstance>();
     public DbSet<ApprovalAssignment> ApprovalAssignments => Set<ApprovalAssignment>();
+    public DbSet<SlaPolicy> SlaPolicies => Set<SlaPolicy>();
+    public DbSet<TaskSla> TaskSlas => Set<TaskSla>();
+    public DbSet<EscalationPolicy> EscalationPolicies => Set<EscalationPolicy>();
 
     public DbSet<FormDefinition> FormDefinitions => Set<FormDefinition>();
     public DbSet<FormVersion> FormVersions => Set<FormVersion>();

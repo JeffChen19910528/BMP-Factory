@@ -23,4 +23,11 @@ public class ProcessVersion : AuditableEntity
 
     public Guid? PublishedBy { get; set; }
     public DateTime? PublishedAt { get; set; }
+
+    // Phase 8 — why this version was published (a free-text governance note, e.g. "Added Legal
+    // approval step per policy update"), supplied optionally at publish time. Never set/changed
+    // afterward — a Published version is immutable, and ChangeReason is part of that same frozen
+    // record, not a separately-editable field. NULL for every version published before Phase 8
+    // and for any publish where the caller didn't supply one.
+    public string? ChangeReason { get; set; }
 }

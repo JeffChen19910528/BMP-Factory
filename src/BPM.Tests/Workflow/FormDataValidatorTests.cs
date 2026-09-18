@@ -37,6 +37,34 @@ public class FormDataValidatorTests
         Assert.Contains(result.Errors, e => e.Code == "FIELD_REQUIRED");
     }
 
+    // Phase 5.4.2: requiredOverride, when supplied, fully replaces field.Required rather than
+    // adding to it — this is how FormEngine feeds in the rule engine's *effective* required set.
+    [Fact]
+    public void Validate_RequiredOverride_AddsRequirednessBeyondStaticSchema()
+    {
+        var data = Parse("""{"itemName":"Server","quantity":2}""");
+
+        var result = FormDataValidator.Validate(Schema, data, enforceRequired: true, requiredOverride: new HashSet<string> { "itemName", "quantity", "category" });
+
+        Assert.Contains(result.Errors, e => e.Code == "FIELD_REQUIRED");
+    }
+
+    [Fact]
+    public void Validate_RequiredOverride_CanRelaxAFieldThatIsNotInTheOverrideSet()
+    {
+        // itemName is statically Required in Schema, but an empty requiredOverride means "the rule
+        // engine says nothing is conditionally required" — since the override *replaces* rather
+        // than adds to field.Required, passing an override without itemName in it stops enforcing
+        // it. FormEngine never actually does this (it always includes every statically-required
+        // field's key), but the validator itself must not silently fall back to field.Required
+        // once an override is supplied — that would make requiredOverride's contract ambiguous.
+        var data = Parse("""{"quantity":2}""");
+
+        var result = FormDataValidator.Validate(Schema, data, enforceRequired: true, requiredOverride: new HashSet<string> { "quantity" });
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == "FIELD_REQUIRED" && e.Message.Contains("itemName"));
+    }
+
     [Fact]
     public void Validate_MissingRequiredField_AllowedWhenNotEnforced()
     {

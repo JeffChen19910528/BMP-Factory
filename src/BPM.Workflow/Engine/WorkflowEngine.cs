@@ -6,6 +6,7 @@ using BPM.Domain.Workflow;
 using BPM.Infrastructure.Persistence;
 using BPM.Workflow.Validation;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace BPM.Workflow.Engine;
 
@@ -35,8 +36,25 @@ public class WorkflowEngine : IWorkflowEngine
         _approvalEngine = new ApprovalEngine(db);
     }
 
-    public async Task<ProcessVersionDto> PublishVersionAsync(Guid processDefinitionId, Guid publishedBy, CancellationToken cancellationToken = default)
+    public WorkflowValidationResultDto ValidateDefinition(WorkflowDefinition definition)
     {
+        var result = WorkflowDefinitionValidator.Validate(definition);
+        return new WorkflowValidationResultDto(
+            result.IsValid,
+            result.Errors.Select(e => new WorkflowValidationErrorDto(e.Code, e.Message)).ToList());
+    }
+
+    public async Task<ProcessVersionDto> PublishVersionAsync(Guid processDefinitionId, Guid publishedBy, string? changeReason = null, CancellationToken cancellationToken = default)
+    {
+        // Phase 8 — validated here (a plain length check, not FluentValidation) rather than
+        // letting Postgres reject an over-length value with a raw 22001 error (which would leak
+        // as an unhandled exception — ErrorHandlingMiddleware only catches AppException/
+        // ValidationException). Matches ProcessVersionConfiguration's own HasMaxLength(1000).
+        if (changeReason is { Length: > 1000 })
+        {
+            throw new BadRequestAppException("CHANGE_REASON_TOO_LONG", "ChangeReason must not exceed 1000 characters.");
+        }
+
         var definition = await _db.ProcessDefinitions
             .SingleOrDefaultAsync(p => p.Id == processDefinitionId, cancellationToken)
             ?? throw new NotFoundAppException("PROCESS_DEFINITION_NOT_FOUND", $"Process definition '{processDefinitionId}' was not found.");
@@ -63,12 +81,13 @@ public class WorkflowEngine : IWorkflowEngine
         var formKeys = parsed!.Nodes.Where(n => n.Form is not null).Select(n => n.Form!.FormDefinitionKey).Distinct().ToList();
         if (formKeys.Count > 0)
         {
-            var publishedFormKeys = await _db.FormDefinitions
+            var publishedForms = await _db.FormDefinitions
                 .Where(f => formKeys.Contains(f.Key) && f.Status == FormDefinitionStatus.Published)
-                .Select(f => f.Key)
+                .Select(f => new { f.Key, f.CurrentVersionId })
                 .ToListAsync(cancellationToken);
+            var publishedFormVersionByKey = publishedForms.ToDictionary(f => f.Key, f => f.CurrentVersionId);
 
-            var missing = formKeys.Except(publishedFormKeys).ToList();
+            var missing = formKeys.Except(publishedFormVersionByKey.Keys).ToList();
             if (missing.Count > 0)
             {
                 throw new ValidationAppException(
@@ -76,20 +95,39 @@ public class WorkflowEngine : IWorkflowEngine
                     "Workflow definition references forms that don't exist or aren't published.",
                     missing.Select(key => ("FORM_REFERENCE_INVALID", $"Referenced form '{key}' does not exist or has no published version.")).ToList());
             }
+
+            // Phase 10 — Form Version pinning. Snapshot exactly which FormVersion is current for
+            // each referenced form key right now, at the moment this ProcessVersion is published,
+            // and freeze that choice into the graph before it's re-serialized below — see
+            // FormReference.FormVersionId's own doc comment for why this is the smallest correct
+            // fix rather than a new database column.
+            var pinnedNodes = parsed.Nodes.Select(n => n.Form is null
+                ? n
+                : n with { Form = n.Form with { FormVersionId = publishedFormVersionByKey[n.Form.FormDefinitionKey] } }).ToList();
+            parsed = parsed with { Nodes = pinnedNodes };
+            draft.DefinitionJson = WorkflowJson.Serialize(parsed);
         }
 
         draft.Status = ProcessVersionStatus.Published;
         draft.PublishedBy = publishedBy;
         draft.PublishedAt = DateTime.UtcNow;
+        draft.ChangeReason = changeReason;
 
+        // Phase 8 — publishing a new version while the definition is Suspended/Archived also
+        // returns it to Published, matching this phase's own "Suspend/Archive block new starts
+        // and freeze metadata, but publishing a fresh version is still a Draft/Publish workflow
+        // action, not a governance action" decision; a Draft can only ever be created in the
+        // first place from Published/Suspended/Archived (never while Draft already exists — see
+        // CreateVersionAsync), so this assignment is a safe, idempotent no-op when already
+        // Published and a deliberate un-suspend/un-archive when it wasn't.
         definition.Status = ProcessDefinitionStatus.Published;
         definition.CurrentVersionId = draft.Id;
 
-        _db.AuditLogs.Add(WorkflowTransitions.NewAuditLog(publishedBy, AuditActions.PublishProcess, nameof(ProcessVersion), draft.Id.ToString(), new { draft.ProcessDefinitionId, draft.VersionNumber }));
+        _db.AuditLogs.Add(WorkflowTransitions.NewAuditLog(publishedBy, AuditActions.PublishProcess, nameof(ProcessVersion), draft.Id.ToString(), new { draft.ProcessDefinitionId, draft.VersionNumber, draft.ChangeReason }));
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        return new ProcessVersionDto(draft.Id, draft.ProcessDefinitionId, draft.VersionNumber, draft.Status, parsed!, draft.PublishedAt);
+        return new ProcessVersionDto(draft.Id, draft.ProcessDefinitionId, draft.VersionNumber, draft.Status, parsed!, draft.CreatedAt, draft.CreatedBy, draft.PublishedAt, draft.PublishedBy, draft.ChangeReason, Convert.ToBase64String(draft.RowVersion));
     }
 
     public async Task<ProcessInstanceDto> StartProcessAsync(StartProcessRequest request, Guid initiatorId, CancellationToken cancellationToken = default)
@@ -125,10 +163,33 @@ public class WorkflowEngine : IWorkflowEngine
 
         await WorkflowTransitions.AdvanceFromAsync(_db, graph, startNode, instance, initiatorId, cancellationToken);
 
-        await _db.SaveChangesAsync(cancellationToken);
+        // Phase 10 — Process Start idempotency. A BusinessKey is optional and this check is a
+        // no-op fast path when it's null (the unique index below permits unlimited NULLs). When a
+        // caller does supply one, a pre-check here would still leave a genuine TOCTOU race between
+        // two concurrent Start requests for the same key — the real guard is the database's own
+        // unique index on (TenantId, ProcessDefinitionId, BusinessKey)
+        // (ProcessInstanceConfiguration.cs), caught below and translated into the same structured
+        // {code, message, traceId} contract every other conflict in this codebase already uses,
+        // never a raw PostgresException. Whichever of two racing requests loses gets a clean 409
+        // and creates no ProcessInstance row at all (the whole method is one SaveChangesAsync, so
+        // a caught failure here rolls back everything this call added, including the just-created
+        // TaskInstance from AdvanceFromAsync above).
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (request.BusinessKey is not null && IsUniqueViolation(ex))
+        {
+            throw new ConflictAppException(
+                "PROCESS_INSTANCE_DUPLICATE_BUSINESS_KEY",
+                $"A process instance with business key '{request.BusinessKey}' already exists for this process.");
+        }
 
         return new ProcessInstanceDto(instance.Id, instance.ProcessDefinitionId, instance.ProcessVersionId, instance.BusinessKey, instance.InitiatorId, instance.Status, instance.StartedAt, instance.CompletedAt);
     }
+
+    private static bool IsUniqueViolation(DbUpdateException ex) =>
+        ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 
     public async Task<TaskDto> CompleteTaskAsync(Guid taskId, Guid currentUserId, IReadOnlyCollection<string> currentUserRoles, CancellationToken cancellationToken = default)
     {
@@ -163,7 +224,20 @@ public class WorkflowEngine : IWorkflowEngine
         task.Status = TaskInstanceStatus.Completed;
         task.CompletedAt = DateTime.UtcNow;
 
+        // Phase 6.3: the assignee acted within (or after) the window either way — a no-op if this
+        // task never had an applicable SLA.
+        await SlaEngine.CompleteIfActiveAsync(_db, task.Id, cancellationToken);
+
         _db.AuditLogs.Add(WorkflowTransitions.NewAuditLog(currentUserId, AuditActions.TaskCompleted, nameof(TaskInstance), task.Id.ToString(), new { task.NodeId, task.ProcessInstanceId }));
+
+        // Phase 6.1: TaskCompleted. Recipient is the process Initiator (kept informed of progress
+        // on their own request) — skipped when the Initiator is the one who completed the task
+        // themselves (the common case: a UserTask's own applicant step), since notifying someone
+        // of their own action is noise, not information.
+        if (task.ProcessInstance.InitiatorId != currentUserId)
+        {
+            WorkflowTransitions.AddNotificationWithDelivery(_db, task.ProcessInstance.InitiatorId, NotificationType.TaskCompleted, "Task Completed", $"The task \"{task.NodeName}\" on your process has been completed.", nameof(TaskInstance), task.Id.ToString());
+        }
 
         var version = await _db.ProcessVersions.SingleAsync(v => v.Id == task.ProcessInstance.ProcessVersionId, cancellationToken);
         var graph = WorkflowJson.TryDeserialize(version.DefinitionJson)

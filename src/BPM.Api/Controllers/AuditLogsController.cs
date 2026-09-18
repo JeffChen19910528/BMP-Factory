@@ -1,4 +1,5 @@
 using BPM.Application.Audit;
+using BPM.Application.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -18,6 +19,6 @@ public class AuditLogsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<AuditLogDto>>> Query([FromQuery] AuditLogQuery query, CancellationToken cancellationToken) =>
+    public async Task<ActionResult<PagedResult<AuditLogDto>>> Query([FromQuery] AuditLogQuery query, CancellationToken cancellationToken) =>
         Ok(await _auditLogQueryService.QueryAsync(query, cancellationToken));
 }

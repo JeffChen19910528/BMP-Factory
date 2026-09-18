@@ -14,8 +14,13 @@ public static class FormDataValidator
 {
     // enforceRequired is false for a Draft save (partial data is fine while still editing) and
     // true for Submit (Skill.md §14: "the backend must perform validation" before accepting a
-    // submission).
-    public static WorkflowValidationResult Validate(FormSchema schema, JsonElement data, bool enforceRequired)
+    // submission). requiredOverride (Phase 5.4.2), when provided, is the *effective* required set
+    // computed by FormRuleEngine (static field.Required OR-ed with any matching conditionally-
+    // required rule) and fully replaces the plain field.Required check — a client cannot dodge a
+    // conditionally-required field by pointing at its static schema flag. Left null, behavior is
+    // identical to every pre-5.4.2 call site (existing tests pass this positionally and keep
+    // working unchanged).
+    public static WorkflowValidationResult Validate(FormSchema schema, JsonElement data, bool enforceRequired, IReadOnlySet<string>? requiredOverride = null)
     {
         var result = new WorkflowValidationResult();
 
@@ -28,10 +33,11 @@ public static class FormDataValidator
         foreach (var field in schema.Fields)
         {
             var hasValue = data.TryGetProperty(field.Key, out var value) && value.ValueKind != JsonValueKind.Null;
+            var isRequired = requiredOverride?.Contains(field.Key) ?? field.Required;
 
             if (!hasValue)
             {
-                if (enforceRequired && field.Required)
+                if (enforceRequired && isRequired)
                 {
                     result.AddError("FIELD_REQUIRED", $"Field '{field.Key}' is required.");
                 }

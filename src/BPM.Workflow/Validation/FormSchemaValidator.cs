@@ -57,11 +57,21 @@ public static class FormSchemaValidator
             ValidateValidationRules(field, result);
         }
 
-        // Visibility references assume every field's key is sound — skip if the key set itself
-        // is unreliable (duplicates/invalid already reported above).
+        // Visibility references (and, below, Rules) assume every field's key is sound — skip if
+        // the key set itself is unreliable (duplicates/invalid already reported above).
         if (result.IsValid)
         {
             ValidateVisibilityReferences(schema, result);
+        }
+
+        // Phase 5.4.2: FormSchema.Rules, additive to the field-level checks above. A separate
+        // internal validator (not inlined here) since it's a materially larger, self-contained
+        // concern (condition trees, formulas, dependency cycles) — same reasoning that already
+        // split FormDataValidator out from this class for a different question ("is this schema
+        // well-formed" vs "does this data satisfy it").
+        if (result.IsValid)
+        {
+            FormRuleValidator.Validate(schema, result);
         }
 
         return result;

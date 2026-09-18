@@ -23,8 +23,8 @@ public class ProcessDefinitionsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<ProcessDefinitionDto>>> GetAll(CancellationToken cancellationToken) =>
-        Ok(await _processDefinitionService.GetAllAsync(cancellationToken));
+    public async Task<ActionResult<PagedResult<ProcessDefinitionDto>>> GetAll([FromQuery] ProcessDefinitionQuery query, CancellationToken cancellationToken) =>
+        Ok(await _processDefinitionService.GetAllAsync(query, cancellationToken));
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ProcessDefinitionDto>> GetById(Guid id, CancellationToken cancellationToken)
@@ -41,6 +41,11 @@ public class ProcessDefinitionsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = definition.Id }, definition);
     }
 
+    [HttpPut("{id:guid}")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<ActionResult<ProcessDefinitionDto>> Update(Guid id, UpdateProcessDefinitionRequest request, CancellationToken cancellationToken) =>
+        Ok(await _processDefinitionService.UpdateAsync(id, request, cancellationToken));
+
     [HttpGet("{id:guid}/versions")]
     public async Task<ActionResult<IReadOnlyList<ProcessVersionDto>>> GetVersions(Guid id, CancellationToken cancellationToken) =>
         Ok(await _processDefinitionService.GetVersionsAsync(id, cancellationToken));
@@ -50,8 +55,57 @@ public class ProcessDefinitionsController : ControllerBase
     public async Task<ActionResult<ProcessVersionDto>> CreateVersion(Guid id, CreateProcessVersionRequest request, CancellationToken cancellationToken) =>
         Ok(await _processDefinitionService.CreateVersionAsync(id, request, cancellationToken));
 
+    [HttpPut("{id:guid}/versions/{versionId:guid}")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<ActionResult<ProcessVersionDto>> UpdateVersion(Guid id, Guid versionId, UpdateProcessVersionRequest request, CancellationToken cancellationToken) =>
+        Ok(await _processDefinitionService.UpdateVersionAsync(id, versionId, request, cancellationToken));
+
     [HttpPost("{id:guid}/publish")]
     [Authorize(Roles = "Administrator")]
-    public async Task<ActionResult<ProcessVersionDto>> Publish(Guid id, CancellationToken cancellationToken) =>
-        Ok(await _workflowEngine.PublishVersionAsync(id, _currentUser.RequireUserId(), cancellationToken));
+    public async Task<ActionResult<ProcessVersionDto>> Publish(Guid id, [FromBody] PublishProcessRequest? request, CancellationToken cancellationToken) =>
+        Ok(await _workflowEngine.PublishVersionAsync(id, _currentUser.RequireUserId(), request?.ChangeReason, cancellationToken));
+
+    // ---- Phase 8 — Process Governance & Lifecycle ----
+
+    // [Authorize] only (not role-restricted) — SuspendAsync/ArchiveAsync/RestoreAsync themselves
+    // enforce Administrator-OR-owner from the loaded entity's own OwnerUserId (Part 3); a bare
+    // role attribute can't express "owner of this specific resource," so the check moves into the
+    // service, the same place every other resource-scoped authorization decision in this codebase
+    // already lives (ProcessInstanceQueryService.GetByIdAsync, TaskQueryService.GetByIdAsync).
+    [HttpPost("{id:guid}/suspend")]
+    [Authorize]
+    public async Task<ActionResult<ProcessDefinitionDto>> Suspend(Guid id, ProcessLifecycleActionRequest request, CancellationToken cancellationToken) =>
+        Ok(await _processDefinitionService.SuspendAsync(id, _currentUser.RequireUserId(), _currentUser.Roles, request, cancellationToken));
+
+    [HttpPost("{id:guid}/archive")]
+    [Authorize]
+    public async Task<ActionResult<ProcessDefinitionDto>> Archive(Guid id, ProcessLifecycleActionRequest request, CancellationToken cancellationToken) =>
+        Ok(await _processDefinitionService.ArchiveAsync(id, _currentUser.RequireUserId(), _currentUser.Roles, request, cancellationToken));
+
+    [HttpPost("{id:guid}/restore")]
+    [Authorize]
+    public async Task<ActionResult<ProcessDefinitionDto>> Restore(Guid id, ProcessLifecycleActionRequest request, CancellationToken cancellationToken) =>
+        Ok(await _processDefinitionService.RestoreAsync(id, _currentUser.RequireUserId(), _currentUser.Roles, request, cancellationToken));
+
+    // Administrator-only (Part 3/15) — ownership assignment/change/clear is never something an
+    // owner can do to themselves.
+    [HttpPost("{id:guid}/owner")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<ActionResult<ProcessDefinitionDto>> AssignOwner(Guid id, AssignProcessOwnerRequest request, CancellationToken cancellationToken) =>
+        Ok(await _processDefinitionService.AssignOwnerAsync(id, request, cancellationToken));
+
+    // Read-only, any authenticated user — matches GetVersions' own gating; both versions compared
+    // must belong to `id` (enforced in CompareVersionsAsync, never trusted from the query string).
+    [HttpGet("{id:guid}/versions/compare")]
+    public async Task<ActionResult<VersionComparisonResponse>> CompareVersions(Guid id, [FromQuery] Guid fromVersionId, [FromQuery] Guid toVersionId, CancellationToken cancellationToken) =>
+        Ok(await _processDefinitionService.CompareVersionsAsync(id, fromVersionId, toVersionId, cancellationToken));
+
+    // Stateless preview validation for the JSON Definition Editor's [Validate] action (frontend
+    // spec §10) — runs the same authoritative WorkflowDefinitionValidator PublishVersionAsync
+    // uses, but never persists or publishes anything. Always 200: "invalid" is a normal validation
+    // outcome to render, not a request failure.
+    [HttpPost("validate")]
+    [Authorize(Roles = "Administrator")]
+    public ActionResult<WorkflowValidationResultDto> Validate(ValidateWorkflowDefinitionRequest request) =>
+        Ok(_workflowEngine.ValidateDefinition(request.Definition));
 }

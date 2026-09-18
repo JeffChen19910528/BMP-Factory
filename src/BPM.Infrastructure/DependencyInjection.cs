@@ -1,10 +1,17 @@
+using BPM.Application.Administration;
 using BPM.Application.Audit;
 using BPM.Application.Common;
+using BPM.Application.Dashboard;
 using BPM.Application.Departments;
+using BPM.Application.ProcessMonitoring;
 using BPM.Application.Forms;
+using BPM.Application.Notifications;
 using BPM.Application.Organizations;
 using BPM.Application.Processes;
+using BPM.Application.Analytics;
+using BPM.Application.Reports;
 using BPM.Application.Roles;
+using BPM.Application.Sla;
 using BPM.Application.Users;
 using BPM.Application.Workflow;
 using BPM.Domain.Entities;
@@ -34,6 +41,7 @@ public static class DependencyInjection
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddScoped<IAuditService, AuditService>();
+        services.AddSingleton<IClock, SystemClock>();
         services.AddScoped<IAuditLogQueryService, AuditLogQueryService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IOrganizationService, OrganizationService>();
@@ -46,6 +54,16 @@ public static class DependencyInjection
         services.AddScoped<IFormInstanceQueryService, FormInstanceQueryService>();
         services.AddScoped<IFormAuthorizationService, FormAuthorizationService>();
         services.AddScoped<IAttachmentService, AttachmentService>();
+        services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<ISlaPolicyService, SlaPolicyService>();
+        services.AddScoped<IEscalationPolicyService, EscalationPolicyService>();
+        services.Configure<DashboardSettings>(configuration.GetSection(DashboardSettings.SectionName));
+        services.AddScoped<IDashboardQueryService, DashboardQueryService>();
+        services.AddScoped<IProcessMonitoringQueryService, ProcessMonitoringQueryService>();
+        services.AddScoped<IReportQueryService, ReportQueryService>();
+        services.AddScoped<IAnalyticsQueryService, AnalyticsQueryService>();
+        services.AddScoped<IOperationalHealthService, OperationalHealthService>();
+        services.AddScoped<IProcessInstanceDetailQueryService, ProcessInstanceDetailQueryService>();
         services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
 
         services.Configure<MinioSettings>(configuration.GetSection(MinioSettings.SectionName));

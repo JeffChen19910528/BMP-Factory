@@ -13,6 +13,7 @@ public class ProcessVersionConfiguration : IEntityTypeConfiguration<ProcessVersi
         builder.Property(v => v.DefinitionJson).IsRequired();
         builder.Property(v => v.Status).HasConversion<string>().HasMaxLength(32);
         builder.Property(v => v.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
+        builder.Property(v => v.ChangeReason).HasMaxLength(1000);
 
         builder.HasIndex(v => new { v.ProcessDefinitionId, v.VersionNumber }).IsUnique();
     }

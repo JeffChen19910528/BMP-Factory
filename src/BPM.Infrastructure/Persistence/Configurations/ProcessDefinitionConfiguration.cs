@@ -24,5 +24,15 @@ public class ProcessDefinitionConfiguration : IEntityTypeConfiguration<ProcessDe
             .WithOne(v => v.ProcessDefinition)
             .HasForeignKey(v => v.ProcessDefinitionId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        // Phase 8 — OwnerUserId is a plain nullable reference, no navigation property (mirrors
+        // Department.ManagerUserId's own existing shape) — no cascade delete, since Users are
+        // never deleted in this system anyway (no delete endpoint exists), but Restrict is the
+        // same safe default this codebase already uses for every other "reference a User by id"
+        // FK it configures explicitly.
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(p => p.OwnerUserId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

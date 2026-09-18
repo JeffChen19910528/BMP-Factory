@@ -492,6 +492,9 @@ frontend/dist/
 # Claude Code recovery checkpoints (local tool state, not project content)
 .claude_recovery/
 
+# Claude Code local runtime state (settings, locks, scheduled tasks) — not project content
+.claude/
+
 # Claude Code development/spec files — kept locally for AI-assisted dev context, not published
 CLAUDE.md
 Skill.md

@@ -21,12 +21,12 @@ namespace BPM.Tests.Workflow;
 public class FormEngineIntegrationTests
 {
     private static FormDefinitionService NewFormDefinitionService(BpmDbContext db) =>
-        new(db, new AuditService(db, new FixedCurrentUser(Guid.Empty)), new CreateFormDefinitionRequestValidator(), new CreateFormVersionRequestValidator());
+        new(db, new AuditService(db, new FixedCurrentUser(Guid.Empty)), new FixedCurrentUser(Guid.Empty), new CreateFormDefinitionRequestValidator(), new CreateFormVersionRequestValidator(), new UpdateFormDefinitionRequestValidator(), new UpdateFormVersionRequestValidator());
 
     private static Engine.FormEngine NewFormEngine(BpmDbContext db) => new(db, new FormAuthorizationService(db));
 
     private static ProcessDefinitionService NewProcessDefinitionService(BpmDbContext db) =>
-        new(db, new AuditService(db, new FixedCurrentUser(Guid.Empty)), new CreateProcessDefinitionRequestValidator(), new CreateProcessVersionRequestValidator());
+        new(db, new AuditService(db, new FixedCurrentUser(Guid.Empty)), new FixedCurrentUser(Guid.Empty), new CreateProcessDefinitionRequestValidator(), new CreateProcessVersionRequestValidator(), new UpdateProcessVersionRequestValidator(), new UpdateProcessDefinitionRequestValidator());
 
     private static Engine.WorkflowEngine NewWorkflowEngine(BpmDbContext db) => new(db);
 
@@ -416,6 +416,149 @@ public class FormEngineIntegrationTests
         await using var publishDb = PostgresFixture.CreateContext();
         var ex = await Assert.ThrowsAsync<ValidationAppException>(() => NewWorkflowEngine(publishDb).PublishVersionAsync(processDefinition.Id, Guid.NewGuid()));
         Assert.Contains(ex.Errors, e => e.Code == "FORM_REFERENCE_INVALID");
+    }
+
+    // ---- Phase 5.4.2: Advanced Form Rules, against the real engine/database ----
+
+    private static FormSchema ExpenseSchemaWithConditionalRequired() => new(
+        new[]
+        {
+            new FormFieldDefinition("expenseType", FormFieldType.Select, "Expense Type", Required: true, Options: new[] { new FormFieldOption("OTHER", "Other"), new FormFieldOption("TRAVEL", "Travel") }),
+            new FormFieldDefinition("description", FormFieldType.Text, "Description"),
+        },
+        new[]
+        {
+            new FormRule("r1", "description", FormRuleType.Required, new FormFieldCondition("expenseType", FormConditionOperator.Equals, "OTHER")),
+        });
+
+    [Fact]
+    public async Task Submit_ConditionallyRequiredFieldOmitted_IsRejected_ClientCannotBypassByOmittingHiddenField()
+    {
+        // Phase 5.4.2 §12's exact scenario: expenseType=OTHER makes description required. A client
+        // that simply doesn't submit description must still be rejected by the server.
+        var definition = await CreateAndPublishFormAsync(ExpenseSchemaWithConditionalRequired());
+        var creator = Guid.NewGuid();
+
+        await using var createDb = PostgresFixture.CreateContext();
+        var instance = await NewFormEngine(createDb).CreateInstanceAsync(new CreateFormInstanceRequest(definition.Key, null), creator);
+
+        await using var readDb = PostgresFixture.CreateContext();
+        var queryService = new FormInstanceQueryService(readDb, new FormAuthorizationService(readDb));
+        var initialData = await queryService.GetDataAsync(instance.Id, creator, Array.Empty<string>());
+
+        var payload = JsonSerializer.Deserialize<JsonElement>("""{"expenseType":"OTHER"}""");
+        await using var saveDb = PostgresFixture.CreateContext();
+        await NewFormEngine(saveDb).SaveDataAsync(instance.Id, new UpdateFormDataRequest(payload, initialData!.Version), creator, Array.Empty<string>());
+
+        await using var submitDb = PostgresFixture.CreateContext();
+        var ex = await Assert.ThrowsAsync<ValidationAppException>(() => NewFormEngine(submitDb).SubmitAsync(instance.Id, creator, Array.Empty<string>()));
+        Assert.Contains(ex.Errors, e => e.Code == "FIELD_REQUIRED");
+    }
+
+    [Fact]
+    public async Task Submit_ConditionallyRequiredFieldNotTriggered_SubmissionSucceeds()
+    {
+        var definition = await CreateAndPublishFormAsync(ExpenseSchemaWithConditionalRequired());
+        var creator = Guid.NewGuid();
+
+        await using var createDb = PostgresFixture.CreateContext();
+        var instance = await NewFormEngine(createDb).CreateInstanceAsync(new CreateFormInstanceRequest(definition.Key, null), creator);
+
+        await using var readDb = PostgresFixture.CreateContext();
+        var queryService = new FormInstanceQueryService(readDb, new FormAuthorizationService(readDb));
+        var initialData = await queryService.GetDataAsync(instance.Id, creator, Array.Empty<string>());
+
+        var payload = JsonSerializer.Deserialize<JsonElement>("""{"expenseType":"TRAVEL"}""");
+        await using var saveDb = PostgresFixture.CreateContext();
+        await NewFormEngine(saveDb).SaveDataAsync(instance.Id, new UpdateFormDataRequest(payload, initialData!.Version), creator, Array.Empty<string>());
+
+        await using var submitDb = PostgresFixture.CreateContext();
+        var submitted = await NewFormEngine(submitDb).SubmitAsync(instance.Id, creator, Array.Empty<string>());
+        Assert.Equal(FormInstanceStatus.Submitted, submitted.Status);
+    }
+
+    [Fact]
+    public async Task SaveData_CalculatedField_ServerRecomputes_ClientValueNotTrusted()
+    {
+        var schema = new FormSchema(
+            new[]
+            {
+                new FormFieldDefinition("quantity", FormFieldType.Number, "Quantity", Required: true),
+                new FormFieldDefinition("unitPrice", FormFieldType.Number, "Unit Price", Required: true),
+                new FormFieldDefinition("total", FormFieldType.Number, "Total"),
+            },
+            new[] { new FormRule("r1", "total", FormRuleType.Calculated, Formula: "quantity * unitPrice") });
+
+        var definition = await CreateAndPublishFormAsync(schema);
+        var creator = Guid.NewGuid();
+
+        await using var createDb = PostgresFixture.CreateContext();
+        var instance = await NewFormEngine(createDb).CreateInstanceAsync(new CreateFormInstanceRequest(definition.Key, null), creator);
+
+        await using var readDb = PostgresFixture.CreateContext();
+        var queryService = new FormInstanceQueryService(readDb, new FormAuthorizationService(readDb));
+        var initialData = await queryService.GetDataAsync(instance.Id, creator, Array.Empty<string>());
+
+        // Client submits a spoofed total (999999) alongside the real inputs.
+        var payload = JsonSerializer.Deserialize<JsonElement>("""{"quantity":3,"unitPrice":100,"total":999999}""");
+        await using var saveDb = PostgresFixture.CreateContext();
+        var saved = await NewFormEngine(saveDb).SaveDataAsync(instance.Id, new UpdateFormDataRequest(payload, initialData!.Version), creator, Array.Empty<string>());
+
+        Assert.Equal(300m, saved.Data.GetProperty("total").GetDecimal());
+    }
+
+    [Fact]
+    public async Task CreateInstance_AppliesDeclaredDefaultValues_UserSubmittedValueIsNeverOverwritten()
+    {
+        var schema = new FormSchema(new[]
+        {
+            new FormFieldDefinition("country", FormFieldType.Text, "Country", DefaultValue: "Taiwan"),
+            new FormFieldDefinition("quantity", FormFieldType.Number, "Quantity", DefaultValue: "1"),
+        });
+        var definition = await CreateAndPublishFormAsync(schema);
+        var creator = Guid.NewGuid();
+
+        await using var createDb = PostgresFixture.CreateContext();
+        var instance = await NewFormEngine(createDb).CreateInstanceAsync(new CreateFormInstanceRequest(definition.Key, null), creator);
+
+        await using var readDb = PostgresFixture.CreateContext();
+        var queryService = new FormInstanceQueryService(readDb, new FormAuthorizationService(readDb));
+        var initialData = await queryService.GetDataAsync(instance.Id, creator, Array.Empty<string>());
+        Assert.Equal("Taiwan", initialData!.Data.GetProperty("country").GetString());
+        Assert.Equal(1m, initialData.Data.GetProperty("quantity").GetDecimal());
+
+        // The user overrides quantity — the default must never overwrite it on a later save.
+        var payload = JsonSerializer.Deserialize<JsonElement>("""{"quantity":5}""");
+        await using var saveDb = PostgresFixture.CreateContext();
+        var saved = await NewFormEngine(saveDb).SaveDataAsync(instance.Id, new UpdateFormDataRequest(payload, initialData.Version), creator, Array.Empty<string>());
+        Assert.Equal(5m, saved.Data.GetProperty("quantity").GetDecimal());
+        Assert.Equal("Taiwan", saved.Data.GetProperty("country").GetString());
+    }
+
+    [Fact]
+    public async Task PublishVersion_SchemaWithCircularRuleDependency_RejectedAndNotPublished()
+    {
+        var schema = new FormSchema(
+            new[]
+            {
+                new FormFieldDefinition("a", FormFieldType.Text, "A"),
+                new FormFieldDefinition("b", FormFieldType.Text, "B"),
+            },
+            new[]
+            {
+                new FormRule("r1", "a", FormRuleType.Visibility, new FormFieldCondition("b", FormConditionOperator.Equals, "x")),
+                new FormRule("r2", "b", FormRuleType.Visibility, new FormFieldCondition("a", FormConditionOperator.Equals, "x")),
+            });
+
+        var key = $"circular-{Guid.NewGuid():N}";
+        await using var db = PostgresFixture.CreateContext();
+        var service = NewFormDefinitionService(db);
+        var definition = await service.CreateAsync(new CreateFormDefinitionRequest(key, "Circular", null, null));
+        await service.CreateVersionAsync(definition.Id, new CreateFormVersionRequest(schema));
+
+        await using var publishDb = PostgresFixture.CreateContext();
+        var ex = await Assert.ThrowsAsync<ValidationAppException>(() => NewFormEngine(publishDb).PublishVersionAsync(definition.Id, Guid.NewGuid()));
+        Assert.Contains(ex.Errors, e => e.Code == "CIRCULAR_RULE_DEPENDENCY");
     }
 
     private class FixedCurrentUser : ICurrentUserService

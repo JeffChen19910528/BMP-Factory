@@ -18,7 +18,7 @@ namespace BPM.Tests.Workflow;
 public class ApprovalEngineIntegrationTests
 {
     private static ProcessDefinitionService NewDefinitionService(BpmDbContext db) =>
-        new(db, new AuditService(db, new FixedCurrentUser(Guid.Empty)), new CreateProcessDefinitionRequestValidator(), new CreateProcessVersionRequestValidator());
+        new(db, new AuditService(db, new FixedCurrentUser(Guid.Empty)), new FixedCurrentUser(Guid.Empty), new CreateProcessDefinitionRequestValidator(), new CreateProcessVersionRequestValidator(), new UpdateProcessVersionRequestValidator(), new UpdateProcessDefinitionRequestValidator());
 
     private static Engine.WorkflowEngine NewEngine(BpmDbContext db) => new(db);
 

@@ -1,3 +1,6 @@
+using BPM.Application.Workflow;
+using BPM.Domain.Forms;
+
 namespace BPM.Application.Forms;
 
 // Mutating form operations — the Form Engine equivalent of IWorkflowEngine (Skill.md Phase 4,
@@ -8,6 +11,11 @@ namespace BPM.Application.Forms;
 public interface IFormEngine
 {
     Task<FormVersionDto> PublishVersionAsync(Guid formDefinitionId, Guid publishedBy, CancellationToken cancellationToken = default);
+
+    // Phase 5.4.1's Form Designer "Validate" action (mirrors IWorkflowEngine.ValidateDefinition
+    // exactly, same reasoning): runs the same authoritative, pure, DB-free FormSchemaValidator
+    // PublishVersionAsync uses, without persisting or publishing anything.
+    WorkflowValidationResultDto ValidateSchema(FormSchema schema);
 
     // Manual/standalone creation (Skill.md §23's plain POST /api/form-instances). The
     // WorkflowEngine creates FormInstances tied to a TaskInstance itself, not through this method.

@@ -24,4 +24,12 @@ public class DepartmentsController : ControllerBase
     [Authorize(Roles = "Administrator")]
     public async Task<ActionResult<DepartmentDto>> Create(CreateDepartmentRequest request, CancellationToken cancellationToken) =>
         Ok(await _departmentService.CreateAsync(request, cancellationToken));
+
+    [HttpPut("{id:guid}")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<ActionResult<DepartmentDto>> Update(Guid id, UpdateDepartmentRequest request, CancellationToken cancellationToken)
+    {
+        var department = await _departmentService.UpdateAsync(id, request, cancellationToken);
+        return department is null ? NotFound() : Ok(department);
+    }
 }

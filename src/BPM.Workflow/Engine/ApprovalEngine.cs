@@ -78,6 +78,20 @@ internal class ApprovalEngine
             };
             db.ApprovalAssignments.Add(assignment);
             db.AuditLogs.Add(WorkflowTransitions.NewAuditLog(actingUserId, AuditActions.ApprovalAssigned, nameof(ApprovalAssignment), assignment.Id.ToString(), new { task.NodeId, assignment.UserId, assignment.Order }));
+
+            // Phase 6.1: ApprovalRequired — only for candidates who can actually act right now.
+            // All/AnyOne: every resolved candidate can act immediately. Sequential: only Order 0
+            // is actionable yet (EnsureSequentialTurn gates the rest) — notifying a later
+            // candidate now would be misleading ("required" when it isn't their turn), so they're
+            // notified instead when their turn actually arrives (see ResolveApprovalOutcomeAsync/
+            // the per-approve advance below is not needed here since Sequential's next candidate
+            // only becomes actionable after a prior Approve, which does not create a new
+            // ApprovalAssignment row — it is already visible in their My Tasks/worklist without a
+            // fresh notification being strictly required for this foundation phase).
+            if (config.Policy != ApprovalPolicy.Sequential || i == 0)
+            {
+                WorkflowTransitions.AddNotificationWithDelivery(db, assignment.UserId, NotificationType.ApprovalRequired, "Approval Required", $"Your approval is required for \"{task.NodeName}\".", nameof(TaskInstance), task.Id.ToString());
+            }
         }
 
         db.AuditLogs.Add(WorkflowTransitions.NewAuditLog(actingUserId, AuditActions.TaskCreated, nameof(TaskInstance), task.Id.ToString(), new { task.NodeId, task.ProcessInstanceId, approval.Policy }));
@@ -167,12 +181,29 @@ internal class ApprovalEngine
         mine.Status = ApprovalAssignmentStatus.Returned;
         mine.CompletedAt = DateTime.UtcNow;
         approval.Status = ApprovalInstanceStatus.Returned;
+
+        // Phase 6.1: ApprovalReturned — every OTHER still-Pending co-approver is about to have
+        // their assignment cancelled by CancelRemainingPending below; capture them first so each
+        // can be told their action is no longer needed (a genuinely distinct audience from
+        // ProcessReturned's Initiator notification below — see Notification.cs's own comment on
+        // why these are two types, not one).
+        var otherPendingApprovers = approval.Assignments.Where(a => a.Id != mine.Id && a.Status == ApprovalAssignmentStatus.Pending).Select(a => a.UserId).ToList();
         CancelRemainingPending(approval);
 
         task.Status = TaskInstanceStatus.Returned;
         task.CompletedAt = DateTime.UtcNow;
+        // Part M: the approver acted (returned it) within the window — Completed, not Cancelled.
+        // The *new* TaskInstance CreateTaskForNodeAsync creates below (at previousNode) goes
+        // through the normal creation path and gets its own fresh TaskSla if one applies there.
+        await SlaEngine.CompleteIfActiveAsync(_db, task.Id, cancellationToken);
 
         _db.AuditLogs.Add(WorkflowTransitions.NewAuditLog(currentUserId, AuditActions.ApprovalReturned, nameof(ApprovalAssignment), mine.Id.ToString(), new { task.NodeId, Target = previousNode.Id }));
+
+        foreach (var userId in otherPendingApprovers)
+        {
+            WorkflowTransitions.AddNotificationWithDelivery(_db, userId, NotificationType.ApprovalReturned, "Approval Returned", $"The approval \"{task.NodeName}\" was returned and no longer needs your action.", nameof(TaskInstance), task.Id.ToString());
+        }
+        WorkflowTransitions.AddNotificationWithDelivery(_db, processInstance.InitiatorId, NotificationType.ProcessReturned, "Process Returned", $"Your request was returned for revision at \"{task.NodeName}\".", nameof(ProcessInstance), processInstance.Id.ToString());
 
         // Process stays Running throughout — Return rewinds one step, unlike Reject which
         // terminates the process (Skill.md §14 vs §15).
@@ -293,19 +324,35 @@ internal class ApprovalEngine
         {
             task.Status = TaskInstanceStatus.Completed;
             task.CompletedAt = DateTime.UtcNow;
+            await SlaEngine.CompleteIfActiveAsync(_db, task.Id, cancellationToken);
 
             var (graph, node, processInstance) = await LoadGraphContextAsync(task, cancellationToken);
+
+            // Phase 6.1: ApprovalCompleted (Approved outcome only — the Rejected outcome below
+            // gets its own ProcessRejected notification instead, since that is the more useful,
+            // non-redundant signal for a terminal reject; firing both here would double-notify
+            // the Initiator for what is, from their perspective, one event).
+            if (processInstance.InitiatorId != actingUserId)
+            {
+                WorkflowTransitions.AddNotificationWithDelivery(_db, processInstance.InitiatorId, NotificationType.ApprovalCompleted, "Approval Completed", $"The approval \"{task.NodeName}\" on your process has been approved.", nameof(TaskInstance), task.Id.ToString());
+            }
+
             await WorkflowTransitions.AdvanceFromAsync(_db, graph, node, processInstance, actingUserId, cancellationToken);
         }
         else
         {
             task.Status = TaskInstanceStatus.Rejected;
             task.CompletedAt = DateTime.UtcNow;
+            // Part M: the approver acted (rejected) within the window — this is a fulfilled SLA,
+            // not an abandoned one, so it's Completed, not Cancelled (reserved for a future
+            // administrative-termination-without-action case that doesn't exist in this engine).
+            await SlaEngine.CompleteIfActiveAsync(_db, task.Id, cancellationToken);
 
             var processInstance = await _db.ProcessInstances.SingleAsync(p => p.Id == task.ProcessInstanceId, cancellationToken);
             processInstance.Status = ProcessInstanceStatus.Rejected;
             processInstance.CompletedAt = DateTime.UtcNow;
             _db.AuditLogs.Add(WorkflowTransitions.NewAuditLog(actingUserId, AuditActions.Reject, nameof(ProcessInstance), processInstance.Id.ToString(), new { task.NodeId }));
+            WorkflowTransitions.AddNotificationWithDelivery(_db, processInstance.InitiatorId, NotificationType.ProcessRejected, "Process Rejected", $"Your process request was rejected at \"{task.NodeName}\".", nameof(ProcessInstance), processInstance.Id.ToString());
         }
     }
 

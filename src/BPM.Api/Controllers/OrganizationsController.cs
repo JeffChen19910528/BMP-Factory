@@ -24,4 +24,12 @@ public class OrganizationsController : ControllerBase
     [Authorize(Roles = "Administrator")]
     public async Task<ActionResult<OrganizationDto>> Create(CreateOrganizationRequest request, CancellationToken cancellationToken) =>
         Ok(await _organizationService.CreateAsync(request, cancellationToken));
+
+    [HttpPut("{id:guid}")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<ActionResult<OrganizationDto>> Update(Guid id, UpdateOrganizationRequest request, CancellationToken cancellationToken)
+    {
+        var organization = await _organizationService.UpdateAsync(id, request, cancellationToken);
+        return organization is null ? NotFound() : Ok(organization);
+    }
 }

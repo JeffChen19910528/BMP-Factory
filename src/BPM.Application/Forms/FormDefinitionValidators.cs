@@ -17,6 +17,15 @@ public class CreateFormDefinitionRequestValidator : AbstractValidator<CreateForm
     }
 }
 
+public class UpdateFormDefinitionRequestValidator : AbstractValidator<UpdateFormDefinitionRequest>
+{
+    public UpdateFormDefinitionRequestValidator()
+    {
+        RuleFor(r => r.Name).NotEmpty().MaximumLength(256);
+        RuleFor(r => r.Category).MaximumLength(128);
+    }
+}
+
 public class CreateFormVersionRequestValidator : AbstractValidator<CreateFormVersionRequest>
 {
     public CreateFormVersionRequestValidator()
@@ -24,5 +33,17 @@ public class CreateFormVersionRequestValidator : AbstractValidator<CreateFormVer
         RuleFor(r => r.Schema).NotNull();
         RuleFor(r => r.Schema.Fields).NotEmpty().When(r => r.Schema is not null)
             .WithMessage("Schema must contain at least one field.");
+    }
+}
+
+public class UpdateFormVersionRequestValidator : AbstractValidator<UpdateFormVersionRequest>
+{
+    public UpdateFormVersionRequestValidator()
+    {
+        RuleFor(r => r.Schema).NotNull();
+        RuleFor(r => r.Schema.Fields).NotEmpty().When(r => r.Schema is not null)
+            .WithMessage("Schema must contain at least one field.");
+        RuleFor(r => r.ExpectedVersion).NotEmpty()
+            .WithMessage("ExpectedVersion is required — pass the RowVersion last read from this FormVersion.");
     }
 }

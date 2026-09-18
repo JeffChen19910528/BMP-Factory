@@ -18,7 +18,7 @@ namespace BPM.Tests.Workflow;
 public class WorkflowEngineIntegrationTests
 {
     private static ProcessDefinitionService NewDefinitionService(BpmDbContext db) =>
-        new(db, new AuditService(db, new FixedCurrentUser(Guid.Empty)), new CreateProcessDefinitionRequestValidator(), new CreateProcessVersionRequestValidator());
+        new(db, new AuditService(db, new FixedCurrentUser(Guid.Empty)), new FixedCurrentUser(Guid.Empty), new CreateProcessDefinitionRequestValidator(), new CreateProcessVersionRequestValidator(), new UpdateProcessVersionRequestValidator(), new UpdateProcessDefinitionRequestValidator());
 
     private static Engine.WorkflowEngine NewEngine(BpmDbContext db) => new(db);
 
@@ -319,6 +319,94 @@ public class WorkflowEngineIntegrationTests
         await using var correctUserDb = PostgresFixture.CreateContext();
         var result = await NewEngine(correctUserDb).CompleteTaskAsync(task.Id, assignee, Array.Empty<string>());
         Assert.Equal(TaskInstanceStatus.Completed, result.Status);
+    }
+
+    // Phase 10 — Process Start idempotency (MUST HAVE #1). BusinessKey uniqueness is scoped to
+    // (TenantId, ProcessDefinitionId) — see ProcessInstanceConfiguration.cs's own comment — so
+    // each test below uses its own freshly-created process definition.
+
+    [Fact]
+    public async Task StartProcess_WithoutBusinessKey_AllowsMultipleInstances()
+    {
+        var definition = await CreateAndPublishAsync(SequentialDefinition());
+
+        await using var db1 = PostgresFixture.CreateContext();
+        var instance1 = await NewEngine(db1).StartProcessAsync(new StartProcessRequest(definition.Key, null), Guid.NewGuid());
+
+        await using var db2 = PostgresFixture.CreateContext();
+        var instance2 = await NewEngine(db2).StartProcessAsync(new StartProcessRequest(definition.Key, null), Guid.NewGuid());
+
+        Assert.NotEqual(instance1.Id, instance2.Id);
+    }
+
+    [Fact]
+    public async Task StartProcess_WithUniqueBusinessKey_Succeeds()
+    {
+        var definition = await CreateAndPublishAsync(SequentialDefinition());
+
+        await using var db = PostgresFixture.CreateContext();
+        var instance = await NewEngine(db).StartProcessAsync(new StartProcessRequest(definition.Key, $"BK-{Guid.NewGuid():N}"), Guid.NewGuid());
+
+        Assert.Equal(ProcessInstanceStatus.Running, instance.Status);
+    }
+
+    [Fact]
+    public async Task StartProcess_SameBusinessKeyTwice_SecondAttemptRejectedCleanly_NoSecondInstance()
+    {
+        var definition = await CreateAndPublishAsync(SequentialDefinition());
+        var businessKey = $"BK-{Guid.NewGuid():N}";
+
+        await using var db1 = PostgresFixture.CreateContext();
+        var first = await NewEngine(db1).StartProcessAsync(new StartProcessRequest(definition.Key, businessKey), Guid.NewGuid());
+
+        await using var db2 = PostgresFixture.CreateContext();
+        var ex = await Assert.ThrowsAsync<ConflictAppException>(() =>
+            NewEngine(db2).StartProcessAsync(new StartProcessRequest(definition.Key, businessKey), Guid.NewGuid()));
+        Assert.Equal("PROCESS_INSTANCE_DUPLICATE_BUSINESS_KEY", ex.Code);
+
+        await using var verifyDb = PostgresFixture.CreateContext();
+        var count = await verifyDb.ProcessInstances.CountAsync(p => p.ProcessDefinitionId == first.ProcessDefinitionId && p.BusinessKey == businessKey);
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public async Task StartProcess_TwoConcurrentRequestsWithSameBusinessKey_ExactlyOneSucceeds_NoRawException()
+    {
+        var definition = await CreateAndPublishAsync(SequentialDefinition());
+        var businessKey = $"BK-{Guid.NewGuid():N}";
+
+        await using var db1 = PostgresFixture.CreateContext();
+        await using var db2 = PostgresFixture.CreateContext();
+
+        var attempt1 = NewEngine(db1).StartProcessAsync(new StartProcessRequest(definition.Key, businessKey), Guid.NewGuid());
+        var attempt2 = NewEngine(db2).StartProcessAsync(new StartProcessRequest(definition.Key, businessKey), Guid.NewGuid());
+
+        var results = await Task.WhenAll(attempt1.ContinueWith(t => t), attempt2.ContinueWith(t => t));
+
+        var succeeded = results.Count(t => t.IsCompletedSuccessfully);
+        var conflicted = results.Count(t => t.IsFaulted && t.Exception!.InnerExceptions.Single() is ConflictAppException { Code: "PROCESS_INSTANCE_DUPLICATE_BUSINESS_KEY" });
+
+        Assert.Equal(1, succeeded);
+        Assert.Equal(1, conflicted);
+
+        await using var verifyDb = PostgresFixture.CreateContext();
+        var definitionId = await verifyDb.ProcessDefinitions.Where(d => d.Key == definition.Key).Select(d => d.Id).SingleAsync();
+        var count = await verifyDb.ProcessInstances.CountAsync(p => p.ProcessDefinitionId == definitionId && p.BusinessKey == businessKey);
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public async Task StartProcess_DifferentBusinessKeys_BothSucceed()
+    {
+        var definition = await CreateAndPublishAsync(SequentialDefinition());
+
+        await using var db1 = PostgresFixture.CreateContext();
+        var instance1 = await NewEngine(db1).StartProcessAsync(new StartProcessRequest(definition.Key, $"BK-{Guid.NewGuid():N}"), Guid.NewGuid());
+
+        await using var db2 = PostgresFixture.CreateContext();
+        var instance2 = await NewEngine(db2).StartProcessAsync(new StartProcessRequest(definition.Key, $"BK-{Guid.NewGuid():N}"), Guid.NewGuid());
+
+        Assert.NotEqual(instance1.Id, instance2.Id);
     }
 
     private class FixedCurrentUser : ICurrentUserService

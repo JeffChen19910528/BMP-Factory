@@ -26,6 +26,7 @@
     <ProjectReference Include="..\BPM.Infrastructure\BPM.Infrastructure.csproj" />
     <ProjectReference Include="..\BPM.Workflow\BPM.Workflow.csproj" />
     <ProjectReference Include="..\BPM.Identity\BPM.Identity.csproj" />
+    <ProjectReference Include="..\BPM.Notification\BPM.Notification.csproj" />
   </ItemGroup>
 
 </Project>
